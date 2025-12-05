@@ -7,19 +7,27 @@
     const START_PERCENT = 10;
     const STEP_PERCENT = 10;
 
-    // --- GLOBAL STATE (The Singleton Pattern) ---
-    let activeVideo = null;       // The video currently playing
-    let pendingPlayTimeout = null; // The timer waiting to start a video
+    // --- GLOBAL STATE ---
+    // We track these to ensure only one video plays at a time
+    let currentlyPlaying = null;
+    let latestHovered = null;
 
-    // Helper: Stop the currently playing video (if any)
-    function killActiveVideo() {
-        if (activeVideo) {
-            activeVideo.pause();
-            
-            // Optional: If it was a dynamically injected Wall video, you could remove it here
-            // activeVideo.remove(); 
-            
-            activeVideo = null;
+    // Helper: Enforce Single Player Mode
+    function playExclusive(videoEl) {
+        // 1. If another video is playing, pause it
+        if (currentlyPlaying && currentlyPlaying !== videoEl) {
+            currentlyPlaying.pause();
+        }
+        
+        // 2. Play the new one
+        const p = videoEl.play();
+        if (p) {
+            p.then(() => {
+                currentlyPlaying = videoEl;
+            }).catch(e => {
+                // Auto-play might be blocked or interrupted
+                // console.warn("Playback interrupted", e);
+            });
         }
     }
 
@@ -28,13 +36,14 @@
         if (videoEl.dataset.smartLogicAttached) return;
         videoEl.dataset.smartLogicAttached = "true";
 
-        // Internal State for this specific video
+        // Internal State (Local to this video)
         const state = {
             pct: START_PERCENT,
-            isStream: false
+            isStream: false,
+            hoverTimeout: null // Local timer is safer
         };
 
-        // A. Check availability (Head Request)
+        // A. Check availability
         fetch(videoEl.src, { method: 'HEAD' })
             .then((res) => {
                 if (res.status !== 200) {
@@ -59,24 +68,26 @@
             }
         });
 
-        // C. Hover Enter (The Critical Logic)
+        // C. Hover Enter
         videoEl.addEventListener("mouseenter", function(e) {
-            // 1. Kill any pending timer from a previous hover
-            if (pendingPlayTimeout) {
-                clearTimeout(pendingPlayTimeout);
-                pendingPlayTimeout = null;
-            }
+            // Update Global Tracker
+            latestHovered = this;
 
-            // 2. Stop immediate native playback
+            // Stop immediate native Stash playback
             this.pause();
             e.stopImmediatePropagation();
 
-            // 3. Start ONE global timer
-            pendingPlayTimeout = setTimeout(() => {
-                // Stop whatever was playing before
-                killActiveVideo();
+            // Clear any existing local timer
+            if (state.hoverTimeout) clearTimeout(state.hoverTimeout);
 
-                // Prepare this video
+            // Start Timer
+            state.hoverTimeout = setTimeout(() => {
+                // INTEGRITY CHECK:
+                // Only play if this video is STILL the last one the user hovered.
+                // This prevents multiple videos from starting if you move mouse quickly.
+                if (latestHovered !== this) return;
+
+                // Prepare position if stream
                 if (state.isStream && this.duration) {
                     const targetTime = this.duration * (state.pct / 100);
                     if (Math.abs(this.currentTime - targetTime) > 1) {
@@ -84,28 +95,18 @@
                     }
                 }
 
-                // Set as active and play
-                activeVideo = this;
-                const p = this.play();
-                if (p) p.catch(() => {}); 
+                playExclusive(this);
 
             }, HOVER_DELAY_MS);
-        }, true); 
+        }, true); // Capture phase
 
         // D. Hover Leave
         videoEl.addEventListener("mouseleave", function() {
-            // If I leave BEFORE the timer fired, kill the timer.
-            // This prevents the video from starting if I moved my mouse away quickly.
-            if (pendingPlayTimeout) {
-                clearTimeout(pendingPlayTimeout);
-                pendingPlayTimeout = null;
+            if (state.hoverTimeout) {
+                clearTimeout(state.hoverTimeout);
+                state.hoverTimeout = null;
             }
-
-            // Pause this specific video if it was playing
-            if (activeVideo === this) {
-                this.pause();
-                activeVideo = null;
-            }
+            this.pause();
         });
     }
 
@@ -121,13 +122,10 @@
         if (!match) return;
         const sceneId = match[1];
 
+        // We use 'mouseenter' on the WALL ITEM to spawn the video
         wallItem.addEventListener('mouseenter', () => {
-            // Clear global timeout immediately here too, just in case
-            if (pendingPlayTimeout) clearTimeout(pendingPlayTimeout);
-
             let video = wallItem.querySelector('.smart-wall-video');
             
-            // Create if missing
             if (!video) {
                 video = document.createElement('video');
                 video.className = "smart-wall-video";
@@ -135,6 +133,7 @@
                 video.loop = true;
                 video.muted = true;
                 
+                // Styling to match Wall Item
                 video.style.position = "absolute";
                 video.style.top = "0";
                 video.style.left = "0";
@@ -142,19 +141,22 @@
                 video.style.height = "100%";
                 video.style.objectFit = "contain";
                 video.style.zIndex = "5";
-                video.style.background = "#000";
+                video.style.backgroundColor = "#000";
 
+                // Match Image Dimensions if possible
                 const img = wallItem.querySelector('img');
                 if (img) {
                     video.width = img.width;
                     video.height = img.height;
                 }
-                
+
                 wallItem.appendChild(video);
                 attachSmartLogic(video);
             }
 
-            // Manually trigger the enter logic on the video element
+            // Force the video to recognize the hover immediately
+            // (Because the video sits ON TOP of the wall item, the wall item gets the 
+            // mouseenter first, creates the video, and the video might need a nudge)
             video.dispatchEvent(new Event('mouseenter'));
 
         }, { once: false });
@@ -173,12 +175,14 @@
             mutation.addedNodes.forEach((node) => {
                 if (node.nodeType !== 1) return;
 
+                // Grid Videos
                 if (node.matches && node.matches('.scene-card-preview-video')) {
                     attachSmartLogic(node);
                 } else if (node.querySelectorAll) {
                     node.querySelectorAll('.scene-card-preview-video').forEach(attachSmartLogic);
                 }
 
+                // Wall Items
                 if (node.matches && node.matches('.wall-item')) {
                     processWallItem(node);
                 } else if (node.querySelectorAll) {
@@ -190,8 +194,9 @@
 
     observer.observe(document.body, { childList: true, subtree: true });
 
+    // Initial Run
     document.querySelectorAll('.scene-card-preview-video').forEach(attachSmartLogic);
     document.querySelectorAll('.wall-item').forEach(processWallItem);
 
-    console.log("✅ Smart Stream Previews (Single Player Mode) Loaded");
+    console.log("✅ Smart Stream Previews (Robust Mode) Loaded");
 })();
