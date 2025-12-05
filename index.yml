@@ -1,4 +1,4 @@
-- id: smart-stream-previews
+- id: smartStreamPreviews
   name: Smart Stream Previews
   metadata:
     description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
