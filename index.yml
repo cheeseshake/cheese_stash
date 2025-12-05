@@ -4,18 +4,18 @@
     description: Verifies that your custom repo is connected.
   version: 1.0
   path: test-plugin/test-plugin.zip
-  sha256: 217a53f4b1cd48696081cdf4ce2496dc29c25d82d2fa85c016cbc38daa887df2
+  sha256: 98a686037c77d267c09cbad4561d5b83a19af05d667da497fa272d9daf34cb10
 - id: smart-stream-previews
   name: Smart Stream Previews
   metadata:
     description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
   version: 1.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/smart-stream-previews/smart-stream-previews.zip
-  sha256: ad9a4f66727f708afab92e9c7a8eac6f15f371d960c9d3d68dc70584979de7c0
+  sha256: 4a7dc04233594150e8b80ee3718b707c9ece70f3479402631b79a1aad60e0f64
 - id: scene-source-icons
   name: Scene Source Icons
   metadata:
     description: Adds an icon to Scene Cards (Grid & Wall) to view/copy Source URLs.
   version: 1.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/scene-source-icons/scene-source-icons.zip
-  sha256: YOUR_NEW_HASH
+  sha256: baf669cbd8a80b79f7c9c06d8965b9aba7b2bbea269950928030a4a9648e3250
