@@ -7,38 +7,47 @@
     const START_PERCENT = 10;
     const STEP_PERCENT = 10;
 
-    // --- 1. CORE LOGIC (Handles the video behavior) ---
+    // --- GLOBAL STATE (The Singleton Pattern) ---
+    let activeVideo = null;       // The video currently playing
+    let pendingPlayTimeout = null; // The timer waiting to start a video
+
+    // Helper: Stop the currently playing video (if any)
+    function killActiveVideo() {
+        if (activeVideo) {
+            activeVideo.pause();
+            
+            // Optional: If it was a dynamically injected Wall video, you could remove it here
+            // activeVideo.remove(); 
+            
+            activeVideo = null;
+        }
+    }
+
+    // --- 1. CORE LOGIC ---
     function attachSmartLogic(videoEl) {
         if (videoEl.dataset.smartLogicAttached) return;
         videoEl.dataset.smartLogicAttached = "true";
 
-        // Internal State
+        // Internal State for this specific video
         const state = {
             pct: START_PERCENT,
-            hoverTimeout: null,
             isStream: false
         };
 
         // A. Check availability (Head Request)
-        // If this is a newly injected wall video, src might be set to preview initially.
-        // We check if it exists. If not, swap to stream.
         fetch(videoEl.src, { method: 'HEAD' })
             .then((res) => {
                 if (res.status !== 200) {
-                    // Switch to stream
                     videoEl.src = videoEl.src.replace("/preview", "/stream");
-                    videoEl.muted = true; // Force mute streams
+                    videoEl.muted = true;
                     state.isStream = true;
                 }
             })
             .catch(() => {});
 
-        // B. Time Update (The 10% -> 20% Loop)
+        // B. Time Update Loop
         videoEl.addEventListener("timeupdate", function() {
-            // Only loop if it's falling back to a full stream (or if you want previews to loop too, remove checks)
-            // Usually previews are short enough to just play, but let's apply logic if it's a stream.
-            if (!state.isStream) return;
-            if (!this.duration) return;
+            if (!state.isStream || !this.duration) return;
 
             const segmentStartTime = this.duration * (state.pct / 100);
             const segmentEndTime = segmentStartTime + PLAY_DURATION_SEC;
@@ -46,40 +55,56 @@
             if (this.currentTime >= segmentEndTime) {
                 state.pct += STEP_PERCENT;
                 if (state.pct >= 95) state.pct = START_PERCENT;
-                
                 this.currentTime = this.duration * (state.pct / 100);
             }
         });
 
-        // C. Hover Enter (Start Timer)
+        // C. Hover Enter (The Critical Logic)
         videoEl.addEventListener("mouseenter", function(e) {
-            // Stop immediate playback
+            // 1. Kill any pending timer from a previous hover
+            if (pendingPlayTimeout) {
+                clearTimeout(pendingPlayTimeout);
+                pendingPlayTimeout = null;
+            }
+
+            // 2. Stop immediate native playback
             this.pause();
             e.stopImmediatePropagation();
 
-            state.hoverTimeout = setTimeout(() => {
-                // If it's a stream, jump to the correct % before playing
+            // 3. Start ONE global timer
+            pendingPlayTimeout = setTimeout(() => {
+                // Stop whatever was playing before
+                killActiveVideo();
+
+                // Prepare this video
                 if (state.isStream && this.duration) {
                     const targetTime = this.duration * (state.pct / 100);
                     if (Math.abs(this.currentTime - targetTime) > 1) {
                         this.currentTime = targetTime;
                     }
                 }
-                const p = this.play();
-                if (p) p.catch(() => {}); // Catch autoplay rejections
-            }, HOVER_DELAY_MS);
-        }, true); // Capture phase is critical
 
-        // D. Hover Leave (Cleanup)
+                // Set as active and play
+                activeVideo = this;
+                const p = this.play();
+                if (p) p.catch(() => {}); 
+
+            }, HOVER_DELAY_MS);
+        }, true); 
+
+        // D. Hover Leave
         videoEl.addEventListener("mouseleave", function() {
-            if (state.hoverTimeout) {
-                clearTimeout(state.hoverTimeout);
-                state.hoverTimeout = null;
+            // If I leave BEFORE the timer fired, kill the timer.
+            // This prevents the video from starting if I moved my mouse away quickly.
+            if (pendingPlayTimeout) {
+                clearTimeout(pendingPlayTimeout);
+                pendingPlayTimeout = null;
             }
-            this.pause();
-            // Reset position logic if desired
-            if (state.isStream && this.duration) {
-                this.currentTime = this.duration * (state.pct / 100);
+
+            // Pause this specific video if it was playing
+            if (activeVideo === this) {
+                this.pause();
+                activeVideo = null;
             }
         });
     }
@@ -89,7 +114,6 @@
         if (wallItem.dataset.smartPreviewProcessed) return;
         wallItem.dataset.smartPreviewProcessed = "true";
 
-        // Find the ID from the link
         const link = wallItem.querySelector('a[href^="/scenes/"]');
         if (!link) return;
         
@@ -97,57 +121,48 @@
         if (!match) return;
         const sceneId = match[1];
 
-        // We only create the video when the user Hovers (Performance)
         wallItem.addEventListener('mouseenter', () => {
-            // Check if video already exists
-            if (wallItem.querySelector('.smart-wall-video')) return;
+            // Clear global timeout immediately here too, just in case
+            if (pendingPlayTimeout) clearTimeout(pendingPlayTimeout);
 
-            // Create Video
-            const video = document.createElement('video');
-            video.className = "smart-wall-video";
-            // Default to preview, the logic will swap to stream if 404
-            video.src = `/scene/${sceneId}/preview`; 
-            video.loop = true;
-            video.muted = true;
+            let video = wallItem.querySelector('.smart-wall-video');
             
-            // CSS to overlay exactly on top of the image
-            video.style.position = "absolute";
-            video.style.top = "0";
-            video.style.left = "0";
-            video.style.width = "100%";
-            video.style.height = "100%";
-            video.style.objectFit = "contain"; // or 'cover' depending on preference
-            video.style.zIndex = "5";
-            video.style.background = "#000";
+            // Create if missing
+            if (!video) {
+                video = document.createElement('video');
+                video.className = "smart-wall-video";
+                video.src = `/scene/${sceneId}/preview`; 
+                video.loop = true;
+                video.muted = true;
+                
+                video.style.position = "absolute";
+                video.style.top = "0";
+                video.style.left = "0";
+                video.style.width = "100%";
+                video.style.height = "100%";
+                video.style.objectFit = "contain";
+                video.style.zIndex = "5";
+                video.style.background = "#000";
 
-            // Attach core logic
-            attachSmartLogic(video);
-
-            // Inject
-            // We insert before the first child to ensure it sits correctly in the stack context
-            // actually, usually appending is safer for z-index
-            const img = wallItem.querySelector('img');
-            if (img) {
-                // Match image dimensions exactly
-                video.width = img.width;
-                video.height = img.height;
+                const img = wallItem.querySelector('img');
+                if (img) {
+                    video.width = img.width;
+                    video.height = img.height;
+                }
+                
+                wallItem.appendChild(video);
+                attachSmartLogic(video);
             }
-            wallItem.appendChild(video);
 
-            // Trigger the mouseenter logic we just attached
+            // Manually trigger the enter logic on the video element
             video.dispatchEvent(new Event('mouseenter'));
 
         }, { once: false });
 
-        // Cleanup on leave (Optional: remove video to save RAM?)
-        // For now, let's keep it so if they hover again it's instant.
-        // If you want to remove it: add a mouseleave to the wallItem to video.remove()
         wallItem.addEventListener('mouseleave', () => {
              const v = wallItem.querySelector('.smart-wall-video');
              if (v) {
-                 v.pause();
                  v.dispatchEvent(new Event('mouseleave'));
-                 // Optional: v.remove(); // Uncomment to destroy video on leave
              }
         });
     }
@@ -158,14 +173,12 @@
             mutation.addedNodes.forEach((node) => {
                 if (node.nodeType !== 1) return;
 
-                // A. Check for GRID videos
                 if (node.matches && node.matches('.scene-card-preview-video')) {
                     attachSmartLogic(node);
                 } else if (node.querySelectorAll) {
                     node.querySelectorAll('.scene-card-preview-video').forEach(attachSmartLogic);
                 }
 
-                // B. Check for WALL items
                 if (node.matches && node.matches('.wall-item')) {
                     processWallItem(node);
                 } else if (node.querySelectorAll) {
@@ -177,9 +190,8 @@
 
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // Initial Run
     document.querySelectorAll('.scene-card-preview-video').forEach(attachSmartLogic);
     document.querySelectorAll('.wall-item').forEach(processWallItem);
 
-    console.log("✅ Smart Stream Previews (Grid + Wall Injection) Loaded");
+    console.log("✅ Smart Stream Previews (Single Player Mode) Loaded");
 })();

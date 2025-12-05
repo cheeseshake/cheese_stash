@@ -2,7 +2,7 @@
   name: Smart Stream Previews
   metadata:
     description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
-  version: 1.2
+  version: 1.3
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/smartStreamPreviews/smartStreamPreviews.zip
   sha256: e8c8f16a89ab8a3a678f3781d3c861fe08977d11111f964b26c5a54aedf428fb
 - id: sceneSourceIcons
