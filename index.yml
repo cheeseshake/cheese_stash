@@ -1,3 +1,4 @@
+# index.yml
 - id: my-connection-test
   name: Connection Test
   metadata:
