@@ -1,9 +1,0 @@
-name: Connection Test
-version: 1.0
-description: Verifies that your custom repo is connected.
-url: https://github.com/cheeseshake/cheese_stash
-
-# This is the critical part likely missing:
-ui:
-  javascript:
-    - test.js
