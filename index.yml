@@ -1,0 +1,6 @@
+- id: my-connection-test
+  name: Connection Test
+  metadata:
+    description: Verifies that your custom repo is connected.
+    version: 1.0
+  path: test-plugin/test.yml
