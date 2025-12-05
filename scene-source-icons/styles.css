@@ -1,0 +1,105 @@
+/* Generic Icon Style */
+.url-info-icon {
+    border-radius: 3.5px;
+    cursor: help;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+.url-info-icon svg {
+    fill: currentColor;
+    width: 1em;
+    height: 1em;
+}
+
+/* Grid Specifics */
+.grid-url-icon {
+    font-size: 12px; 
+    padding: 2px 9px 3px 13px;
+    margin-right: 5px;
+}
+.grid-url-icon:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Wall Specifics */
+.wall-url-icon {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 5px;
+    color: #ffffff;
+    font-size: 16px; 
+    z-index: 50;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.9)); 
+}
+.wall-url-icon:hover {
+    transform: scale(1.1);
+    color: #00bfff;
+}
+
+/* The Hover Popup */
+#stash-url-tooltip {
+    position: fixed;
+    z-index: 10000;
+    background: rgba(15, 15, 15, 0.95);
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 8px;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+    max-width: 450px;
+    backdrop-filter: blur(4px);
+    font-size: 12px;
+    pointer-events: auto;
+}
+
+/* MOBILE OVERRIDES */
+@media (max-width: 768px) {
+    #stash-url-tooltip {
+        top: auto !important;
+        left: 10px !important;
+        right: 10px !important;
+        bottom: 10px !important;
+        width: auto !important;
+        max-width: none !important;
+        transform: none !important;
+    }
+    .grid-url-icon {
+        font-size: 18px !important;
+        padding: 4px 12px !important;
+    }
+    .wall-url-icon {
+        font-size: 24px !important;
+        bottom: 15px !important;
+        right: 15px !important;
+    }
+}
+
+/* Items inside the popup */
+.url-tooltip-item {
+    color: #5dade2;
+    text-decoration: none;
+    display: block;
+    padding: 8px 10px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.05);
+    word-break: break-all;
+    transition: background 0.1s;
+}
+.url-tooltip-item:hover {
+    background: #007bff;
+    color: white;
+}
+.url-tooltip-label {
+    font-size: 10px;
+    color: #888;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+}
+.wall-item {
+    position: relative !important;
+}
