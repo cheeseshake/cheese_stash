@@ -1,0 +1,42 @@
+name: Package Plugins
+
+on:
+  push:
+    paths:
+      - 'test-plugin/**'      # Run when plugin source changes
+      - '!test-plugin/*.zip'  # Ignore changes to the zip itself (prevents infinite loops)
+  workflow_dispatch:          # Allows you to click a button to run manually
+
+permissions:
+  contents: write             # Gives the bot permission to push the zip back to your repo
+
+jobs:
+  zip-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Zip the plugin
+        run: |
+          # Navigate into the plugin folder
+          cd test-plugin
+          
+          # Zip everything inside this folder into test-plugin.zip
+          # We use -r (recursive) to include everything
+          zip -r test-plugin.zip . -x "*.zip"
+          
+          # Move the zip back to the folder (technically it's already there, but ensuring context)
+          ls -la
+
+      - name: Commit and Push Zip
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          
+          # Force add the zip file
+          git add test-plugin/test-plugin.zip
+          
+          # Commit with [skip ci] so this commit doesn't trigger the action again
+          git commit -m "Auto-generated plugin zip [skip ci]" || echo "No changes to commit"
+          git push
