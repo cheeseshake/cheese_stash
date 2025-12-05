@@ -3,5 +3,5 @@
   metadata:
     description: Verifies that your custom repo is connected.
   version: 1.0
-  date: 2024-06-11 12:00:00
-  path: test-plugin/test.yml
+  # CHANGED: Point to the .zip file, not the .yml file
+  path: test-plugin/test-plugin.zip
