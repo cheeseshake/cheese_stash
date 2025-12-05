@@ -38,7 +38,7 @@
             hoverTimeout: null
         };
 
-        // A. Check availability (Swaps to stream if preview missing)
+        // A. Check availability
         fetch(videoEl.src, { method: 'HEAD' })
             .then((res) => {
                 if (res.status !== 200) {
@@ -48,19 +48,16 @@
             })
             .catch(() => {});
 
-        // B. Time Update Loop (THE JUMP LOGIC)
+        // B. Time Update Loop
         videoEl.addEventListener("timeupdate", function() {
             if (!this.duration) return;
 
-            // REMOVED check for isStream. Now applies to ALL videos.
             const segmentStartTime = this.duration * (state.pct / 100);
             const segmentEndTime = segmentStartTime + PLAY_DURATION_SEC;
 
             if (this.currentTime >= segmentEndTime) {
                 state.pct += STEP_PERCENT;
                 if (state.pct >= 95) state.pct = START_PERCENT;
-                
-                // Perform the Jump
                 this.currentTime = this.duration * (state.pct / 100);
             }
         });
@@ -68,28 +65,21 @@
         // C. Hover Enter
         videoEl.addEventListener("mouseenter", function(e) {
             latestHovered = this;
-
-            // Stop immediate native Stash playback
             this.pause();
             e.stopImmediatePropagation();
 
             if (state.hoverTimeout) clearTimeout(state.hoverTimeout);
 
             state.hoverTimeout = setTimeout(() => {
-                // Check if user is still hovering this specific video
                 if (latestHovered !== this) return;
 
-                // FORCE JUMP TO START POSITION
                 if (this.duration) {
                     const targetTime = this.duration * (state.pct / 100);
-                    // Seek if we are far away from the target
                     if (Math.abs(this.currentTime - targetTime) > 0.5) {
                         this.currentTime = targetTime;
                     }
                 }
-
                 playExclusive(this);
-
             }, HOVER_DELAY_MS);
         }, true);
 
@@ -102,8 +92,7 @@
             this.pause();
         });
 
-        // E. Initial Metadata Load (Crucial for Wall Items)
-        // Ensures newly created videos know where to start immediately
+        // E. Initial Metadata Load
         videoEl.addEventListener("loadedmetadata", function() {
             if (this.duration) {
                 this.currentTime = this.duration * (state.pct / 100);
@@ -141,6 +130,14 @@
                 video.style.objectFit = "contain";
                 video.style.zIndex = "5";
                 video.style.backgroundColor = "#000";
+                video.style.cursor = "pointer"; // Show pointer cursor
+
+                // CLICK HANDLER: Manually navigate to the scene
+                video.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.location.href = link.href;
+                });
 
                 const img = wallItem.querySelector('img');
                 if (img) {
@@ -152,7 +149,6 @@
                 attachSmartLogic(video);
             }
 
-            // Nudge the video to register the hover
             video.dispatchEvent(new Event('mouseenter'));
 
         }, { once: false });
@@ -191,5 +187,5 @@
     document.querySelectorAll('.scene-card-preview-video').forEach(attachSmartLogic);
     document.querySelectorAll('.wall-item').forEach(processWallItem);
 
-    console.log("✅ Smart Stream Previews (Universal Jump) Loaded");
+    console.log("✅ Smart Stream Previews (Universal + Click Fix) Loaded");
 })();
