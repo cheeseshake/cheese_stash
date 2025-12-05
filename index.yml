@@ -3,5 +3,5 @@
   metadata:
     description: Verifies that your custom repo is connected.
   version: 1.0
-  # CHANGED: Point to the .zip file, not the .yml file
   path: test-plugin/test-plugin.zip
+  sha256: 13f47f6cbffcb920d9f6c2a0da24c912a3369c8eb45398178b1114cb65a2a2a1
