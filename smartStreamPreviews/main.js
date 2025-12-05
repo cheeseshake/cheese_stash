@@ -48,7 +48,7 @@
             })
             .catch(() => {});
 
-        // B. Time Update Loop
+        // B. Time Update Loop (Jump Logic)
         videoEl.addEventListener("timeupdate", function() {
             if (!this.duration) return;
 
@@ -112,6 +112,7 @@
         if (!match) return;
         const sceneId = match[1];
 
+        // 1. Mouse Enter on the WALL ITEM (Container)
         wallItem.addEventListener('mouseenter', () => {
             let video = wallItem.querySelector('.smart-wall-video');
             
@@ -122,6 +123,11 @@
                 video.loop = true;
                 video.muted = true;
                 
+                // --- CRITICAL CHANGE: POINTER EVENTS NONE ---
+                // This makes the video "invisible" to clicks. 
+                // Clicks pass through to the Wall Item below (restoring navigation).
+                video.style.pointerEvents = "none"; 
+                
                 video.style.position = "absolute";
                 video.style.top = "0";
                 video.style.left = "0";
@@ -130,14 +136,6 @@
                 video.style.objectFit = "contain";
                 video.style.zIndex = "5";
                 video.style.backgroundColor = "#000";
-                video.style.cursor = "pointer"; // Show pointer cursor
-
-                // CLICK HANDLER: Manually navigate to the scene
-                video.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    window.location.href = link.href;
-                });
 
                 const img = wallItem.querySelector('img');
                 if (img) {
@@ -149,13 +147,17 @@
                 attachSmartLogic(video);
             }
 
+            // Since the video ignores mouse events (pointer-events: none),
+            // we must MANUALLY tell it "The mouse has entered you"
             video.dispatchEvent(new Event('mouseenter'));
 
         }, { once: false });
 
+        // 2. Mouse Leave on the WALL ITEM
         wallItem.addEventListener('mouseleave', () => {
              const v = wallItem.querySelector('.smart-wall-video');
              if (v) {
+                 // Manually tell the video "The mouse has left"
                  v.dispatchEvent(new Event('mouseleave'));
              }
         });
@@ -187,5 +189,5 @@
     document.querySelectorAll('.scene-card-preview-video').forEach(attachSmartLogic);
     document.querySelectorAll('.wall-item').forEach(processWallItem);
 
-    console.log("✅ Smart Stream Previews (Universal + Click Fix) Loaded");
+    console.log("✅ Smart Stream Previews (Pointer-Events Fix) Loaded");
 })();
