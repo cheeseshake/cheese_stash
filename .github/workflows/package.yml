@@ -1,42 +1,64 @@
-name: Package Plugins
+name: Package All Plugins
 
 on:
   push:
-    paths:
-      - 'test-plugin/**'      # Run when plugin source changes
-      - '!test-plugin/*.zip'  # Ignore changes to the zip itself (prevents infinite loops)
-  workflow_dispatch:          # Allows you to click a button to run manually
+    # Run on any change to the repo, except purely documentation or the index itself
+    paths-ignore:
+      - 'README.md'
+      - 'index.yml' 
+      - '.gitignore'
+  workflow_dispatch:
 
 permissions:
-  contents: write             # Gives the bot permission to push the zip back to your repo
+  contents: write
 
 jobs:
-  zip-files:
+  zip-all-plugins:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Zip the plugin
+      - name: Zip All Directories
         run: |
-          # Navigate into the plugin folder
-          cd test-plugin
-          
-          # Zip everything inside this folder into test-plugin.zip
-          # We use -r (recursive) to include everything
-          zip -r test-plugin.zip . -x "*.zip"
-          
-          # Move the zip back to the folder (technically it's already there, but ensuring context)
-          ls -la
-
-      - name: Commit and Push Zip
-        run: |
+          # Configure git (needed for the commit step later)
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
-          
-          # Force add the zip file
-          git add test-plugin/test-plugin.zip
-          
-          # Commit with [skip ci] so this commit doesn't trigger the action again
-          git commit -m "Auto-generated plugin zip [skip ci]" || echo "No changes to commit"
-          git push
+
+          # Loop through every directory in the root
+          for dir in */ ; do
+            # Remove trailing slash (e.g., "test-plugin/" -> "test-plugin")
+            plugin_name=${dir%/}
+
+            # Skip the hidden .github folder
+            if [[ "$plugin_name" == ".github" ]]; then
+              continue
+            fi
+
+            echo "📦 Packaging plugin: $plugin_name"
+
+            # Go into the folder
+            cd "$plugin_name"
+
+            # Zip contents into [folder-name].zip
+            # -r = recursive
+            # -FS = sync file system (updates changed files, deletes removed ones from zip)
+            # -x = exclude the zip file itself so we don't zip the zip
+            zip -r -FS "$plugin_name.zip" . -x "*.zip"
+
+            # Go back to root
+            cd ..
+
+            # Stage the zip file for commit
+            git add "$plugin_name/$plugin_name.zip"
+          done
+
+      - name: Commit and Push
+        run: |
+          # Only commit if there are changes (the zip files changed)
+          if git diff --staged --quiet; then
+            echo "No changes to plugin packages."
+          else
+            git commit -m "Auto-package plugins [skip ci]"
+            git push
+          fi
