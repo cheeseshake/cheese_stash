@@ -4,11 +4,11 @@
     description: Verifies that your custom repo is connected.
   version: 1.0
   path: test-plugin/test-plugin.zip
-  sha256: a6f64b091c60bcd44c3718e2307498c5b87e19b27704993058d89f392c544067
+  sha256: 6e245c436e44accc28700a38003f0d3b155fc926f5104307655dca4e7d127fca
 - id: smart-stream-previews
   name: Smart Stream Previews
   metadata:
     description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
   version: 1.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/smart-stream-previews/smart-stream-previews.zip
-  sha256: 2696d85d4c2653f8569feef2b541ca2d548ba63b5e93283ae04af5e1053ec5c4
+  sha256: 7742ee04cc0682ad1cf0d4f6f8b851d131e5a31fad6f61ae51f152dc85768588
