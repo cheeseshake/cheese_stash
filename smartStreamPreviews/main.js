@@ -8,25 +8,21 @@
     const STEP_PERCENT = 10;
 
     // --- GLOBAL STATE ---
-    // We track these to ensure only one video plays at a time
     let currentlyPlaying = null;
     let latestHovered = null;
 
     // Helper: Enforce Single Player Mode
     function playExclusive(videoEl) {
-        // 1. If another video is playing, pause it
         if (currentlyPlaying && currentlyPlaying !== videoEl) {
             currentlyPlaying.pause();
         }
         
-        // 2. Play the new one
         const p = videoEl.play();
         if (p) {
             p.then(() => {
                 currentlyPlaying = videoEl;
             }).catch(e => {
-                // Auto-play might be blocked or interrupted
-                // console.warn("Playback interrupted", e);
+                // Auto-play might be blocked
             });
         }
     }
@@ -36,61 +32,58 @@
         if (videoEl.dataset.smartLogicAttached) return;
         videoEl.dataset.smartLogicAttached = "true";
 
-        // Internal State (Local to this video)
+        // Internal State
         const state = {
             pct: START_PERCENT,
-            isStream: false,
-            hoverTimeout: null // Local timer is safer
+            hoverTimeout: null
         };
 
-        // A. Check availability
+        // A. Check availability (Swaps to stream if preview missing)
         fetch(videoEl.src, { method: 'HEAD' })
             .then((res) => {
                 if (res.status !== 200) {
                     videoEl.src = videoEl.src.replace("/preview", "/stream");
                     videoEl.muted = true;
-                    state.isStream = true;
                 }
             })
             .catch(() => {});
 
-        // B. Time Update Loop
+        // B. Time Update Loop (THE JUMP LOGIC)
         videoEl.addEventListener("timeupdate", function() {
-            if (!state.isStream || !this.duration) return;
+            if (!this.duration) return;
 
+            // REMOVED check for isStream. Now applies to ALL videos.
             const segmentStartTime = this.duration * (state.pct / 100);
             const segmentEndTime = segmentStartTime + PLAY_DURATION_SEC;
 
             if (this.currentTime >= segmentEndTime) {
                 state.pct += STEP_PERCENT;
                 if (state.pct >= 95) state.pct = START_PERCENT;
+                
+                // Perform the Jump
                 this.currentTime = this.duration * (state.pct / 100);
             }
         });
 
         // C. Hover Enter
         videoEl.addEventListener("mouseenter", function(e) {
-            // Update Global Tracker
             latestHovered = this;
 
             // Stop immediate native Stash playback
             this.pause();
             e.stopImmediatePropagation();
 
-            // Clear any existing local timer
             if (state.hoverTimeout) clearTimeout(state.hoverTimeout);
 
-            // Start Timer
             state.hoverTimeout = setTimeout(() => {
-                // INTEGRITY CHECK:
-                // Only play if this video is STILL the last one the user hovered.
-                // This prevents multiple videos from starting if you move mouse quickly.
+                // Check if user is still hovering this specific video
                 if (latestHovered !== this) return;
 
-                // Prepare position if stream
-                if (state.isStream && this.duration) {
+                // FORCE JUMP TO START POSITION
+                if (this.duration) {
                     const targetTime = this.duration * (state.pct / 100);
-                    if (Math.abs(this.currentTime - targetTime) > 1) {
+                    // Seek if we are far away from the target
+                    if (Math.abs(this.currentTime - targetTime) > 0.5) {
                         this.currentTime = targetTime;
                     }
                 }
@@ -98,7 +91,7 @@
                 playExclusive(this);
 
             }, HOVER_DELAY_MS);
-        }, true); // Capture phase
+        }, true);
 
         // D. Hover Leave
         videoEl.addEventListener("mouseleave", function() {
@@ -108,6 +101,14 @@
             }
             this.pause();
         });
+
+        // E. Initial Metadata Load (Crucial for Wall Items)
+        // Ensures newly created videos know where to start immediately
+        videoEl.addEventListener("loadedmetadata", function() {
+            if (this.duration) {
+                this.currentTime = this.duration * (state.pct / 100);
+            }
+        }, { once: true });
     }
 
     // --- 2. WALL ITEM ADAPTER ---
@@ -122,7 +123,6 @@
         if (!match) return;
         const sceneId = match[1];
 
-        // We use 'mouseenter' on the WALL ITEM to spawn the video
         wallItem.addEventListener('mouseenter', () => {
             let video = wallItem.querySelector('.smart-wall-video');
             
@@ -133,7 +133,6 @@
                 video.loop = true;
                 video.muted = true;
                 
-                // Styling to match Wall Item
                 video.style.position = "absolute";
                 video.style.top = "0";
                 video.style.left = "0";
@@ -143,7 +142,6 @@
                 video.style.zIndex = "5";
                 video.style.backgroundColor = "#000";
 
-                // Match Image Dimensions if possible
                 const img = wallItem.querySelector('img');
                 if (img) {
                     video.width = img.width;
@@ -154,9 +152,7 @@
                 attachSmartLogic(video);
             }
 
-            // Force the video to recognize the hover immediately
-            // (Because the video sits ON TOP of the wall item, the wall item gets the 
-            // mouseenter first, creates the video, and the video might need a nudge)
+            // Nudge the video to register the hover
             video.dispatchEvent(new Event('mouseenter'));
 
         }, { once: false });
@@ -175,14 +171,12 @@
             mutation.addedNodes.forEach((node) => {
                 if (node.nodeType !== 1) return;
 
-                // Grid Videos
                 if (node.matches && node.matches('.scene-card-preview-video')) {
                     attachSmartLogic(node);
                 } else if (node.querySelectorAll) {
                     node.querySelectorAll('.scene-card-preview-video').forEach(attachSmartLogic);
                 }
 
-                // Wall Items
                 if (node.matches && node.matches('.wall-item')) {
                     processWallItem(node);
                 } else if (node.querySelectorAll) {
@@ -194,9 +188,8 @@
 
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // Initial Run
     document.querySelectorAll('.scene-card-preview-video').forEach(attachSmartLogic);
     document.querySelectorAll('.wall-item').forEach(processWallItem);
 
-    console.log("✅ Smart Stream Previews (Robust Mode) Loaded");
+    console.log("✅ Smart Stream Previews (Universal Jump) Loaded");
 })();
