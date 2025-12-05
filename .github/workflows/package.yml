@@ -1,64 +1,75 @@
-name: Package All Plugins
+name: Package Plugins & Update Index
 
 on:
   push:
-    # Run on any change to the repo, except purely documentation or the index itself
     paths-ignore:
       - 'README.md'
-      - 'index.yml' 
       - '.gitignore'
+      # We DO NOT ignore index.yml anymore, because we might edit it manually
+      # But we will use [skip ci] in the commit message to prevent loops
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  zip-all-plugins:
+  package-and-update:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Zip All Directories
+      - name: Install yq
         run: |
-          # Configure git (needed for the commit step later)
+          # Install yq (command line YAML editor)
+          wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+          chmod +x /usr/local/bin/yq
+
+      - name: Package and Update Hash
+        run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
 
-          # Loop through every directory in the root
+          # Loop through directories
           for dir in */ ; do
-            # Remove trailing slash (e.g., "test-plugin/" -> "test-plugin")
             plugin_name=${dir%/}
+            
+            # Skip .github folder
+            if [[ "$plugin_name" == ".github" ]]; then continue; fi
 
-            # Skip the hidden .github folder
-            if [[ "$plugin_name" == ".github" ]]; then
-              continue
-            fi
+            echo "------------------------------------------------"
+            echo "📦 Processing: $plugin_name"
 
-            echo "📦 Packaging plugin: $plugin_name"
-
-            # Go into the folder
+            # 1. ZIP THE FOLDER
             cd "$plugin_name"
-
-            # Zip contents into [folder-name].zip
-            # -r = recursive
-            # -FS = sync file system (updates changed files, deletes removed ones from zip)
-            # -x = exclude the zip file itself so we don't zip the zip
             zip -r -FS "$plugin_name.zip" . -x "*.zip"
-
-            # Go back to root
             cd ..
 
-            # Stage the zip file for commit
+            # 2. CALCULATE HASH
+            # Get the sha256 hash of the new zip file
+            NEW_HASH=$(sha256sum "$plugin_name/$plugin_name.zip" | awk '{print $1}')
+            echo "   Hash: $NEW_HASH"
+
+            # 3. UPDATE INDEX.YML
+            # We use yq to find the entry where the 'path' contains the zip name
+            # and update the 'sha256' field for that entry.
+            
+            # Logic: Find array item -> select where path contains "plugin.zip" -> update sha256
+            yq -i "(.[] | select(.path | contains(\"$plugin_name.zip\"))).sha256 = \"$NEW_HASH\"" index.yml
+            
+            # Stage the zip file
             git add "$plugin_name/$plugin_name.zip"
           done
 
+          # Stage the index.yml file
+          git add index.yml
+
       - name: Commit and Push
         run: |
-          # Only commit if there are changes (the zip files changed)
           if git diff --staged --quiet; then
-            echo "No changes to plugin packages."
+            echo "No changes to commit."
           else
-            git commit -m "Auto-package plugins [skip ci]"
+            # [skip ci] is crucial to prevent the action from triggering itself infinitely
+            git commit -m "Auto-package and update hashes [skip ci]"
             git push
           fi
