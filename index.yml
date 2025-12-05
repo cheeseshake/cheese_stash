@@ -4,11 +4,11 @@
     description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
   version: 1.5
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/smartStreamPreviews/smartStreamPreviews.zip
-  sha256: 9a793ba3166b5dc569e0043a70e291741570f1d5de61e8134e6140e4a4650564
+  sha256: cc3bf23a7bba223bbb7d76b8c268d1497fa74fe656521d44e1abf0d1d0f6496e
 - id: sceneSourceIcons
   name: Scene Source Icons
   metadata:
     description: Adds an icon to Scene Cards (Grid & Wall) to view/copy Source URLs.
   version: 1.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/sceneSourceIcons/sceneSourceIcons.zip
-  sha256: 3d89271b484ab55426869d4aa164fbdc5d4074243167455f884fb38df6c26f37
+  sha256: 729117e64895779606f2114d233ecf218ba88adbfa22e40f543fb74ae9e357e2
