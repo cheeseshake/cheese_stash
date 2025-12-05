@@ -1,5 +1,5 @@
 name: Smart Stream Previews
-version: 1.1
+version: 1.2
 description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
 url: https://github.com/cheeseshake/cheese_stash
 ui:
