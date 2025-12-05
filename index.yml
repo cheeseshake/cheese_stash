@@ -11,4 +11,4 @@
     description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
   version: 1.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/smart-stream-previews/smart-stream-previews.zip
-  sha256: 4cc70a7a39a029bc870dc0ffa09ec038c8ab781365763bd18d434d02a9799f85
+  sha256: e554d83ba81b9ba868fc6160c95b02d2e99ad5896e537bb54d6aa80a45dc8e6c
