@@ -1,0 +1,9 @@
+name: Scene Source Icons
+version: 1.0
+description: Adds an icon to Scene Cards (Grid & Wall) to view/copy Source URLs.
+url: https://github.com/cheeseshake/cheese_stash
+ui:
+  javascript:
+    - main.js
+  css:
+    - styles.css
