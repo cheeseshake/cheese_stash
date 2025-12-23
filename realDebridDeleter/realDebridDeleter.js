@@ -1,3 +1,5 @@
+console.log("RD Plugin: Script Loaded");
+
 (function () {
     'use strict';
 
@@ -5,148 +7,155 @@
     const TASK_NAME = "Delete From Cloud";
     const BUTTON_ID = "rd-delete-plugin-btn";
 
-    // 1. Wait for Stash API
-    const waitForApi = () => {
-        if (!window.PluginApi || !window.PluginApi.React || !window.PluginApi.patch) {
-            setTimeout(waitForApi, 200);
-            return;
+    // --- 1. NETWORK HELPER (Handles the Sandwich JSON) ---
+    async function runPluginTask(mode, payload) {
+        if (!window.PluginApi) {
+            console.error("RD Plugin: PluginApi not ready");
+            return { error: "Stash API not ready" };
         }
-        init();
-    };
+        
+        const { runTask } = window.PluginApi;
 
-    const init = () => {
-        const { React, patch, runTask } = window.PluginApi;
-
-        // 2. Helper to run Python and parse "Sandwich" JSON
-        const runPythonTask = async (mode, payload) => {
-            try {
-                // Stash expects args as string values
-                const args = {
-                    "mode": mode,
-                    ...Object.keys(payload).reduce((acc, key) => {
-                        const val = payload[key];
-                        acc[key] = typeof val === 'object' ? JSON.stringify(val) : String(val);
-                        return acc;
-                    }, {})
-                };
-
-                // Run the task via Stash Internal API
-                const result = await runTask(PLUGIN_ID, TASK_NAME, args);
-
-                // Check for markers in the output string
-                const regex = /###JSON_START###([\s\S]*?)###JSON_END###/;
-                const match = result.match(regex);
-
-                if (match && match[1]) {
-                    return JSON.parse(match[1]);
-                } else {
-                    console.error("RD Plugin: No JSON markers found.", result);
-                    return { error: "Invalid output from plugin. Check Stash logs." };
-                }
-            } catch (e) {
-                console.error("RD Plugin Error:", e);
-                return { error: e.message };
-            }
-        };
-
-        // 3. The Button Component
-        const DeleteButton = ({ sceneId }) => {
-            const [loading, setLoading] = React.useState(false);
-            const [statusText, setStatusText] = React.useState("Cloud Delete");
-
-            const handleClick = async () => {
-                setLoading(true);
-                setStatusText("Checking...");
-
-                // STEP 1: CHECK
-                const report = await runPythonTask("check", { scene_id: sceneId });
-
-                if (report.error || !report.torrent_id) {
-                    alert("Scan Failed: " + (report.error || "Unknown Error"));
-                    setLoading(false);
-                    setStatusText("Cloud Delete");
-                    return;
-                }
-
-                // STEP 2: USER CONFIRMATION
-                let confirmMsg = "";
-                let scenesToDelete = [sceneId];
-
-                if (report.is_pack) {
-                    const others = report.related_scenes;
-                    confirmMsg = `⚠️ PACK DETECTED ⚠️\n\n`;
-                    confirmMsg += `Torrent: ${report.torrent_name}\n`;
-                    confirmMsg += `Contains ${report.video_file_count} video files.\n`;
-
-                    if (others.length > 0) {
-                        confirmMsg += `\nAlso deleting ${others.length} other Stash scenes:\n`;
-                        others.forEach(s => confirmMsg += `- ${s.title}\n`);
-                        scenesToDelete = scenesToDelete.concat(others.map(s => s.id));
-                    } else {
-                        confirmMsg += `\n(No other Stash scenes found in this folder)\n`;
-                    }
-                    confirmMsg += `\nDelete ALL from Cloud & Stash?`;
-                } else {
-                    confirmMsg = `Delete single file?\n\n${report.torrent_name}`;
-                }
-
-                if (!confirm(confirmMsg)) {
-                    setLoading(false);
-                    setStatusText("Cloud Delete");
-                    return;
-                }
-
-                // STEP 3: EXECUTE
-                setStatusText("Deleting...");
-                const result = await runPythonTask("delete", {
-                    torrent_id: report.torrent_id,
-                    scene_ids: scenesToDelete
-                });
-
-                if (result.error) {
-                    alert("Delete Failed: " + result.error);
-                    setStatusText("Error");
-                } else {
-                    alert(`🗑️ Success! Deleted ${result.deleted_scenes} scenes.`);
-                    // Ideally we would redirect or refresh here, but we'll just disable the button
-                    setStatusText("Deleted");
-                }
-                setLoading(false);
+        try {
+            // Prepare arguments
+            const args = {
+                "mode": mode,
+                ...Object.keys(payload).reduce((acc, key) => {
+                    const val = payload[key];
+                    // Python expects strings for all args
+                    acc[key] = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                    return acc;
+                }, {})
             };
 
-            return React.createElement(
-                "button",
-                {
-                    key: BUTTON_ID,
-                    className: "btn btn-danger",
-                    onClick: handleClick,
-                    disabled: loading || statusText === "Deleted",
-                    style: { marginLeft: "10px" },
-                    title: "Delete from RealDebrid & Stash"
-                },
-                React.createElement("span", { className: loading ? "fa fa-spinner fa-spin" : "fa fa-trash" }),
-                " ",
-                statusText
-            );
+            console.log(`RD Plugin: Sending task '${mode}'...`, args);
+            
+            // Run the task
+            const resultString = await runTask(PLUGIN_ID, TASK_NAME, args);
+
+            // Parse the Sandwich: ###JSON_START### ... ###JSON_END###
+            const regex = /###JSON_START###([\s\S]*?)###JSON_END###/;
+            const match = resultString.match(regex);
+
+            if (match && match[1]) {
+                return JSON.parse(match[1]);
+            } else {
+                console.warn("RD Plugin: No JSON markers found in output:", resultString);
+                return { error: "Invalid output from backend. Check Stash Logs." };
+            }
+        } catch (e) {
+            console.error("RD Plugin Error:", e);
+            return { error: e.message };
+        }
+    }
+
+    // --- 2. BUTTON LOGIC ---
+    async function handleButtonClick(sceneId) {
+        const btn = document.getElementById(BUTTON_ID);
+        const originalHtml = btn.innerHTML;
+        
+        // Helper to reset button state
+        const resetBtn = () => {
+            btn.style.opacity = "1";
+            btn.innerHTML = originalHtml;
         };
 
-        // 4. Inject Button
-        patch.after("SceneToolbar", function (components, props) {
-            if (!props.scene || !props.scene.id) return;
-            if (components.some(c => c && c.key === BUTTON_ID)) return;
+        btn.style.opacity = "0.7";
+        btn.innerHTML = '<span class="fa fa-spinner fa-spin"></span> Checking...';
 
-            components.push(
-                React.createElement(DeleteButton, { sceneId: props.scene.id })
-            );
-        });
-        
-        // Backup injection for other skins/layouts
-        patch.after("SceneHeader", function (components, props) {
-            if (!props.scene || !props.scene.id) return;
-            if (components.some(c => c && c.key === BUTTON_ID)) return;
-            components.push(React.createElement(DeleteButton, { sceneId: props.scene.id }));
-        });
-    };
+        // STEP 1: CHECK
+        const report = await runPluginTask("check", { scene_id: sceneId });
 
-    waitForApi();
+        if (report.error || !report.torrent_id) {
+            alert("Scan Failed: " + (report.error || "Unknown Error"));
+            resetBtn();
+            return;
+        }
+
+        // STEP 2: CONFIRM
+        let confirmMsg = "";
+        let scenesToDelete = [sceneId];
+
+        if (report.is_pack) {
+            const others = report.related_scenes;
+            confirmMsg = `⚠️ PACK DETECTED ⚠️\n\n`;
+            confirmMsg += `Torrent: ${report.torrent_name}\n`;
+            confirmMsg += `Contains ${report.video_file_count} video files.\n`;
+
+            if (others.length > 0) {
+                confirmMsg += `\nAlso deleting ${others.length} other Stash scenes:\n`;
+                others.forEach(s => confirmMsg += `- ${s.title}\n`);
+                scenesToDelete = scenesToDelete.concat(others.map(s => s.id));
+            } else {
+                confirmMsg += `\n(No other Stash scenes found in this folder)\n`;
+            }
+            confirmMsg += `\nDelete ALL from Cloud & Stash?`;
+        } else {
+            confirmMsg = `Delete single file?\n\n${report.torrent_name}`;
+        }
+
+        if (!confirm(confirmMsg)) {
+            resetBtn();
+            return;
+        }
+
+        // STEP 3: EXECUTE
+        btn.innerHTML = '<span class="fa fa-spinner fa-spin"></span> Deleting...';
+        const result = await runPluginTask("delete", {
+            torrent_id: report.torrent_id,
+            scene_ids: scenesToDelete
+        });
+
+        if (result.error) {
+            alert("Delete Failed: " + result.error);
+            btn.innerHTML = '<span class="fa fa-exclamation-triangle"></span> Error';
+        } else {
+            alert(`🗑️ Success! Deleted ${result.deleted_scenes} scenes.`);
+            btn.remove(); // Remove button to indicate success
+        }
+    }
+
+    // --- 3. INJECTOR (The Reliable Brute Force Method) ---
+    // We check every 500ms if the button is missing and inject it.
+    setInterval(() => {
+        // A. Check if we are on a scene page
+        const path = window.location.pathname;
+        const match = path.match(/\/scenes\/(\d+)$/);
+        if (!match) return;
+        const sceneId = match[1];
+
+        // B. Check if button exists
+        const existingBtn = document.getElementById(BUTTON_ID);
+        if (existingBtn) {
+            // Ensure it matches current scene (navigation handling)
+            if (existingBtn.dataset.sceneId !== sceneId) {
+                existingBtn.remove();
+            } else {
+                return; // All good, do nothing
+            }
+        }
+
+        // C. Find a home for the button
+        // We look for standard toolbar classes
+        const toolbar = document.querySelector('.scene-toolbar-group') || 
+                        document.querySelector('.ml-auto') ||
+                        document.querySelector('.SceneHeader-toolbar'); // Newer stash themes
+
+        if (toolbar) {
+            console.log("RD Plugin: Injecting Button for Scene", sceneId);
+            
+            const btn = document.createElement('button');
+            btn.id = BUTTON_ID;
+            btn.dataset.sceneId = sceneId;
+            btn.className = "btn btn-danger";
+            btn.title = "Delete from RealDebrid & Stash";
+            btn.style.marginLeft = "10px";
+            btn.onclick = () => handleButtonClick(sceneId);
+            btn.innerHTML = '<span class="fa fa-trash"></span> Cloud Delete';
+
+            // Insert at the beginning of the toolbar
+            toolbar.insertBefore(btn, toolbar.firstChild);
+        }
+    }, 500);
+
 })();
