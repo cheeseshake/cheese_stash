@@ -18,4 +18,12 @@
     description: Deletes the underlying torrent from RealDebrid and removes the scene from Stash.
   version: 7.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/realDebridDeleter/realDebridDeleter.zip
+<<<<<<< HEAD
+  sha256: b49ffd231a9cd11a35f4ae3fe91ce76ab471824f9cbbe6ee80807b137b6cafd0
+- id: audioCompressor
+  name: Audio Compressor
+  metadata:
+    description: Adds a dynamic range compressor (Night Mode) to the video player to normalize volume.
+  version: 1.0
+  path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/audioCompressor/audioCompressor.zip
   sha256: 3a967684be3e271b20a969eb5fbb79352810e37c6eedeb7022e904873b5beed7

@@ -1,0 +1,7 @@
+name: Audio Compressor
+version: 1.0
+description: Adds a dynamic range compressor (Night Mode) to the video player to normalize volume.
+url: https://github.com/yourrepo/stash-audio-compressor
+ui:
+  javascript:
+    - audioCompressor.js
