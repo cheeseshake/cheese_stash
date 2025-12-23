@@ -1,27 +1,28 @@
-console.log("Audio Compressor: Script Loaded");
+console.log("Audio Compressor: Script Loaded (Portal Mode)");
 
 (function () {
     'use strict';
 
-    const SETTING_KEY = "stash_audio_compressor_level"; // 0, 10, 15, 20
+    const SETTING_KEY = "stash_audio_compressor_level"; 
     const BUTTON_ID = "audio-compressor-btn";
     const MENU_ID = "audio-compressor-menu";
 
     // --- ICONS ---
+    // Added specific style attributes to match Stash's native icon sizing
     const ICON_WAVE = `
-        <svg aria-hidden="true" focusable="false" data-prefix="fas" data-icon="wave-square" class="svg-inline--fa fa-wave-square fa-icon" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512">
+        <svg aria-hidden="true" focusable="false" data-prefix="fas" data-icon="wave-square" 
+             class="svg-inline--fa fa-wave-square fa-icon" role="img" 
+             xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"
+             style="height: 1em; width: 1.25em; vertical-align: -0.125em; pointer-events: none;">
             <path fill="currentColor" d="M568 64H402.3c-18.4 0-35.3 8.3-46.7 23L269.4 227.8 179.8 86.8C162.7 59.9 133.5 44 101.7 44H8C3.6 44 0 47.6 0 52v48c0 4.4 3.6 8 8 8h93.7c9.5 0 18.2 4.7 23.3 12.7l116.3 183.1c17 26.9 46.2 42.8 78 42.8H480l69.7-109.6c5.1-8 13.8-12.7 23.3-12.7H632c4.4 0 8-3.6 8-8v-48c0-4.4-3.6-8-8-8H568zM269.4 284.2l86.1 140.9c11.3 14.7 28.3 23 46.7 23H568c4.4 0 8-3.6 8-8v-48c0-4.4-3.6-8-8-8h-5.2c-9.5 0-18.2-4.7-23.3-12.7L469.7 259.9c-17-26.9-46.2-42.8-78-42.8H223l-69.7 109.6c-5.1 8-13.8 12.7-23.3 12.7H8c-4.4 0-8 3.6-8 8v48c0 4.4 3.6 8 8 8h93.7c18.4 0 35.3-8.3 46.7-23l86.2-135.7z"></path>
         </svg>`;
 
     // --- STATE ---
     let currentContext = null;
-    let currentSource = null;
     let currentGainNode = null;
-    let currentCompressor = null;
     let currentVideoEl = null;
 
-    // --- AUDIO ENGINE ---
-
+    // --- AUDIO ENGINE (Unchanged) ---
     function initAudioGraph(videoEl) {
         if (currentVideoEl === videoEl && currentContext) return; 
 
@@ -32,25 +33,20 @@ console.log("Audio Compressor: Script Loaded");
             const preGain = ctx.createGain();
             const compressor = ctx.createDynamicsCompressor();
 
-            // Config Compressor for "Night Mode" Limiting
             compressor.threshold.value = -24; 
             compressor.knee.value = 30;       
             compressor.ratio.value = 12;      
             compressor.attack.value = 0.003;  
             compressor.release.value = 0.25;  
 
-            // Connect Chain
             source.connect(preGain);
             preGain.connect(compressor);
             compressor.connect(ctx.destination);
 
             currentContext = ctx;
-            currentSource = source;
             currentGainNode = preGain;
-            currentCompressor = compressor;
             currentVideoEl = videoEl;
 
-            console.log("Audio Compressor: Graph Initialized");
             applyGainLevel(getSavedLevel());
 
         } catch (e) {
@@ -64,12 +60,10 @@ console.log("Audio Compressor: Script Loaded");
 
         const linearGain = Math.pow(10, dB / 20);
         currentGainNode.gain.setTargetAtTime(linearGain, currentContext.currentTime, 0.1);
-
         updateButtonVisuals(dB);
     }
 
-    // --- UI HELPERS ---
-
+    // --- DATA ---
     function getSavedLevel() {
         return parseInt(localStorage.getItem(SETTING_KEY) || "0", 10);
     }
@@ -77,7 +71,7 @@ console.log("Audio Compressor: Script Loaded");
     function setSavedLevel(dB) {
         localStorage.setItem(SETTING_KEY, dB);
         applyGainLevel(dB);
-        toggleMenu(false); 
+        closeMenu();
     }
 
     function updateButtonVisuals(dB) {
@@ -91,32 +85,50 @@ console.log("Audio Compressor: Script Loaded");
         } else {
             btn.classList.add('btn-secondary');
             btn.classList.remove('btn-primary');
-            btn.style.opacity = "0.7";
+            btn.style.opacity = "0.7"; // Dimmed when off
         }
     }
 
-    function toggleMenu(forceState = null) {
+    // --- PORTAL MENU LOGIC (The Fix) ---
+    function closeMenu() {
         const menu = document.getElementById(MENU_ID);
-        if (!menu) return;
-
-        const isHidden = menu.style.display === 'none';
-        const newState = forceState !== null ? forceState : !isHidden;
-
-        menu.style.display = newState ? 'block' : 'none';
+        if (menu) menu.remove();
+        document.removeEventListener('click', handleOutsideClick);
     }
 
-    // --- INJECTOR ---
+    function handleOutsideClick(e) {
+        const menu = document.getElementById(MENU_ID);
+        const btn = document.getElementById(BUTTON_ID);
+        if (menu && !menu.contains(e.target) && !btn.contains(e.target)) {
+            closeMenu();
+        }
+    }
 
-    function createMenu() {
+    function openMenu() {
+        // If already open, close it
+        if (document.getElementById(MENU_ID)) {
+            closeMenu();
+            return;
+        }
+
+        const btn = document.getElementById(BUTTON_ID);
+        if (!btn) return;
+
+        // Create Menu attached to BODY (avoids overflow/clipping issues)
         const menu = document.createElement('div');
         menu.id = MENU_ID;
-        menu.className = "dropdown-menu show"; 
-        menu.style.display = "none";
+        menu.className = "dropdown-menu show";
         menu.style.position = "absolute";
-        menu.style.marginTop = "0.5rem";
-        menu.style.right = "0"; 
-        menu.style.minWidth = "120px";
-        menu.style.zIndex = "2000"; // Increased Z-Index to prevent overlap issues
+        menu.style.zIndex = "99999"; // On top of everything
+        menu.style.minWidth = "140px";
+
+        // Calculate Position
+        const rect = btn.getBoundingClientRect();
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        
+        // Position menu below button, aligned to the right edge of button
+        menu.style.top = (rect.bottom + scrollTop + 5) + "px";
+        menu.style.left = (rect.right - 140) + "px"; // Align right edge (140 is minWidth)
 
         const levels = [
             { label: "Off (Original)", val: 0 },
@@ -130,68 +142,65 @@ console.log("Audio Compressor: Script Loaded");
             item.className = "dropdown-item";
             item.href = "#";
             item.innerText = lvl.label;
+            
+            // Highlight active
+            if (getSavedLevel() === lvl.val) {
+                item.classList.add('active');
+            }
+
             item.onclick = (e) => {
                 e.preventDefault();
-                e.stopPropagation();
                 setSavedLevel(lvl.val);
             };
             menu.appendChild(item);
         });
 
-        return menu;
+        document.body.appendChild(menu);
+        
+        // Add listener to close when clicking elsewhere
+        setTimeout(() => {
+            document.addEventListener('click', handleOutsideClick);
+        }, 0);
     }
 
+    // --- INJECTOR ---
     function injectUI(videoEl) {
         if (document.getElementById(BUTTON_ID)) return;
 
-        // Container
+        // Create Container
         const container = document.createElement('div');
-        container.style.position = "relative";
         container.style.display = "inline-block";
-        container.style.marginLeft = "10px"; // Spacing from the stars
+        container.style.marginLeft = "4px"; 
+        container.style.verticalAlign = "middle";
 
-        // Button
+        // Create Button
         const btn = document.createElement('button');
         btn.id = BUTTON_ID;
-        btn.className = "minimal btn btn-secondary";
+        // Match Stash's native button classes
+        btn.className = "minimal btn btn-secondary"; 
         btn.title = "Audio Compressor / Normalizer";
         btn.innerHTML = ICON_WAVE;
+        
         btn.onclick = (e) => {
             e.preventDefault();
-            toggleMenu();
+            e.stopPropagation(); // Stop Stash from catching the click
+            openMenu();
         };
 
-        // Menu
-        const menu = createMenu();
-
         container.appendChild(btn);
-        container.appendChild(menu);
-        
-        // --- PLACEMENT LOGIC ---
-        // Try to find the Stars component
+
+        // --- PLACEMENT: Right after Stars ---
         const stars = document.querySelector('.rating-stars');
         
         if (stars && stars.parentNode) {
-            // Insert AFTER the stars
-            // insertBefore(newNode, referenceNode.nextSibling) acts as insertAfter
             stars.parentNode.insertBefore(container, stars.nextSibling);
         } else {
-            // Fallback: End of toolbar
+            // Fallback
             const toolbar = document.querySelector('.ScenePlayer-toolbar-right') || 
-                            document.querySelector('.scene-toolbar-group') || 
-                            document.querySelector('.ml-auto');
-            if (toolbar) {
-                toolbar.appendChild(container);
-            }
+                            document.querySelector('.scene-toolbar-group');
+            if (toolbar) toolbar.appendChild(container);
         }
 
-        // Click outside listener
-        document.addEventListener('click', (e) => {
-            if (!container.contains(e.target)) {
-                toggleMenu(false);
-            }
-        });
-        
         updateButtonVisuals(getSavedLevel());
     }
 

@@ -23,6 +23,6 @@
   name: Audio Compressor
   metadata:
     description: Adds a dynamic range compressor (Night Mode) to the video player to normalize volume.
-  version: 1.1
+  version: 1.2
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/audioCompressor/audioCompressor.zip
   sha256: b9d98c42b4e12289f6d95efde2ae087bd572c08807e961c7847802634ff0d56f
