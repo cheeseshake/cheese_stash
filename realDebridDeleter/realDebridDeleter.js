@@ -1,4 +1,4 @@
-console.log("RD Plugin: Script Loaded (Error Channel Mode)");
+console.log("RD Plugin: Script Loaded (Dead Drop Mode)");
 
 (function () {
     'use strict';
@@ -7,8 +7,40 @@ console.log("RD Plugin: Script Loaded (Error Channel Mode)");
     const TASK_NAME = "Delete From Cloud";
     const BUTTON_ID = "rd-delete-plugin-btn";
 
-// --- 1. NETWORK HELPER ---
+    // --- 1. NETWORK HELPER ---
+    
+    // Generates a simple random ID for the file handoff
+    function generateReqId() {
+        return Date.now().toString() + "_" + Math.floor(Math.random() * 10000);
+    }
+
+    async function waitForFile(reqId, maxAttempts = 20) {
+        const fileUrl = `/generated/rd_response_${reqId}.json`;
+        
+        for (let i = 0; i < maxAttempts; i++) {
+            try {
+                // Try to fetch the file
+                const response = await fetch(fileUrl, { cache: "no-store" });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log("RD Plugin: Response file found!", data);
+                    return data;
+                }
+            } catch (e) {
+                // Ignore network errors while polling
+            }
+            
+            // Wait 1 second before next try
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        
+        return { error: "Timeout waiting for plugin response file." };
+    }
+
     async function runPluginTask(mode, payload) {
+        const reqId = generateReqId();
+        
         const mutation = `
             mutation RunTask($plugin_id: ID!, $task_name: String!, $args: [PluginArgInput!]) {
                 runPluginTask(plugin_id: $plugin_id, task_name: $task_name, args: $args)
@@ -17,6 +49,7 @@ console.log("RD Plugin: Script Loaded (Error Channel Mode)");
 
         const args = [
             { key: "mode", value: { str: mode } },
+            { key: "req_id", value: { str: reqId } }, // Sending the ID to Python
             ...Object.keys(payload).map(key => {
                 const val = payload[key];
                 const valStr = typeof val === 'object' ? JSON.stringify(val) : String(val);
@@ -31,39 +64,25 @@ console.log("RD Plugin: Script Loaded (Error Channel Mode)");
         };
 
         try {
-            console.log(`RD Plugin: Sending task '${mode}'...`, variables);
+            console.log(`RD Plugin: Triggering task '${mode}' with ID ${reqId}...`);
 
+            // Fire and forget (mostly) - we just need to know it started
             const response = await fetch('/graphql', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: mutation, variables: variables })
             });
-
+            
             const json = await response.json();
-            let textToScan = "";
-
-            // CHECK SUCCESS CHANNEL FIRST
-            if (json.data && json.data.runPluginTask) {
-                textToScan = json.data.runPluginTask;
-            } 
-            // Fallback to error channel (just in case)
-            else if (json.errors && json.errors.length > 0) {
-                textToScan = json.errors[0].message;
-                console.warn("RD Plugin: Plugin reported an error:", textToScan);
+            
+            // If Stash returns an immediate error (like "Plugin not found"), catch it here.
+            if (json.errors) {
+                return { error: json.errors[0].message };
             }
 
-            // Parse the Sandwich
-            const regex = /###JSON_START###([\s\S]*?)###JSON_END###/;
-            const match = textToScan.match(regex);
-
-            if (match && match[1]) {
-                return JSON.parse(match[1]);
-            } else {
-                console.error("RD Plugin: No JSON markers found. Raw Text:", textToScan);
-                // If we have an error message but no JSON, return that error
-                if (json.errors) return { error: textToScan };
-                return { error: "Empty response from plugin." };
-            }
+            // Now we poll for the file that Python creates
+            console.log("RD Plugin: Polling for response file...");
+            return await waitForFile(reqId);
 
         } catch (e) {
             console.error("RD Plugin Network Error:", e);

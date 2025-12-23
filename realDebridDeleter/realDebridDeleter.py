@@ -10,31 +10,52 @@ CONFIG_PATH = "/root/.stash/config.yml"
 PLUGIN_ID = "realDebridDeleter"
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.wmv', '.mov', '.m4v', '.flv', '.webm', '.ts', '.iso'}
 
+# --- PATH HELPERS ---
+def get_output_path(req_id):
+    """Determines where to save the JSON response file."""
+    # We assume 'generated' is a sibling of config.yml
+    base_dir = os.path.dirname(CONFIG_PATH)
+    generated_dir = os.path.join(base_dir, 'generated')
+    
+    # Ensure directory exists
+    if not os.path.exists(generated_dir):
+        os.makedirs(generated_dir, exist_ok=True)
+        
+    return os.path.join(generated_dir, f"rd_response_{req_id}.json")
+
 # --- OUTPUT HELPERS ---
 def log(msg):
-    """Prints to stderr."""
+    """Prints to stderr (Stash Logs)."""
     sys.stderr.write(f"[RD-Plugin] {msg}\n")
     sys.stderr.flush()
 
-def send_response(payload):
+def send_response(payload, req_id):
     """
-    Standard Response: Write JSON to STDOUT and exit 0.
-    We keep the sandwich markers to ensure clean parsing in JS
-    in case any other libs print to stdout.
+    ARCHITECTURE CHANGE: Write JSON to a static file in 'generated'.
+    The JS will poll this file via HTTP.
     """
-    log("Sending JSON via Standard Output...")
-    json_str = json.dumps(payload)
+    if not req_id:
+        log("CRITICAL: No Request ID provided. Cannot write response file.")
+        sys.exit(1)
+
+    file_path = get_output_path(req_id)
+    log(f"Writing response to: {file_path}")
     
-    # Write to STDOUT
-    sys.stdout.write(f"###JSON_START###{json_str}###JSON_END###\n")
-    sys.stdout.flush()
-    
-    # Exit with 0 (Success) so Stash returns the data in runPluginTask
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f)
+    except Exception as e:
+        log(f"CRITICAL: Failed to write response file: {e}")
+        sys.exit(1)
+        
+    # We still exit 0 to tell Stash the script finished fine.
     sys.exit(0)
 
-def error_exit(msg):
+def error_exit(msg, req_id=None):
     log(f"ERROR: {msg}")
-    send_response({"error": msg})
+    if req_id:
+        send_response({"error": msg}, req_id)
+    sys.exit(1)
 
 # --- CONFIG ---
 def get_api_key_from_config():
@@ -121,7 +142,7 @@ def get_torrent_info(filename, full_path, token):
     return target
 
 # --- MODES ---
-def execute_delete_mode(input_data, token):
+def execute_delete_mode(input_data, token, req_id):
     log("Entering Delete Mode")
     torrent_id = input_data.get('torrent_id')
     scene_ids_raw = input_data.get('scene_ids', '[]')
@@ -132,14 +153,14 @@ def execute_delete_mode(input_data, token):
         scene_ids = [scene_ids_raw] if scene_ids_raw else []
     
     if not torrent_id or torrent_id == "undefined":
-        error_exit("Missing valid torrent_id.")
+        error_exit("Missing valid torrent_id.", req_id)
 
     log(f"Deleting Torrent ID: {torrent_id}")
     headers = {'Authorization': f'Bearer {token}'}
     del_r = requests.delete(f"https://api.real-debrid.com/rest/1.0/torrents/delete/{torrent_id}", headers=headers)
     
     if del_r.status_code not in [204, 200]:
-        error_exit(f"RD Delete Failed ({del_r.status_code})")
+        error_exit(f"RD Delete Failed ({del_r.status_code})", req_id)
 
     query = """mutation SceneDestroy($id: ID!) { sceneDestroy(input: {id: $id, delete_file: false, delete_generated: true}) }"""
     deleted_count = 0
@@ -148,13 +169,13 @@ def execute_delete_mode(input_data, token):
         r = requests.post(STASH_URL, json={'query': query, 'variables': {'id': sid}}, headers=get_stash_headers())
         if r.status_code == 200: deleted_count += 1
 
-    send_response({"status": "success", "deleted_scenes": deleted_count})
+    send_response({"status": "success", "deleted_scenes": deleted_count}, req_id)
 
-def execute_check_mode(scene_id, token):
+def execute_check_mode(scene_id, token, req_id):
     log(f"Entering Check Mode for Scene {scene_id}")
     scene = get_scene_details(scene_id)
     if not scene or not scene['files']:
-        error_exit("Scene has no files")
+        error_exit("Scene has no files", req_id)
 
     full_path = scene['files'][0]['path']
     folder_path = os.path.dirname(full_path)
@@ -163,7 +184,7 @@ def execute_check_mode(scene_id, token):
     
     torrent = get_torrent_info(scene['files'][0]['basename'], full_path, token)
     if not torrent:
-        error_exit("Torrent not found in RD history (No name match)")
+        error_exit("Torrent not found in RD history (No name match)", req_id)
 
     files = torrent.get('files', [])
     video_count = sum(1 for f in files if os.path.splitext(f['path'])[1].lower() in VIDEO_EXTENSIONS)
@@ -181,7 +202,7 @@ def execute_check_mode(scene_id, token):
         "is_pack": video_count > 1,
         "related_scenes": related_scenes, 
         "folder_path": folder_path
-    })
+    }, req_id)
 
 # --- MAIN ---
 if __name__ == "__main__":
@@ -189,17 +210,21 @@ if __name__ == "__main__":
         input_data = json.load(sys.stdin)
         args = input_data.get('args', {}) if 'args' in input_data else input_data
         
-        mode = args.get('mode', 'check') 
+        mode = args.get('mode', 'check')
+        req_id = args.get('req_id') # Crucial: This links the JS request to the file output
+        
         token = get_rd_api_key()
         
-        if not token: error_exit("RD API Key missing in Plugin Settings")
+        if not token: error_exit("RD API Key missing in Plugin Settings", req_id)
 
         if mode == 'delete':
-            execute_delete_mode(args, token)
+            execute_delete_mode(args, token, req_id)
         else:
             sid = args.get('scene_id')
-            if not sid: error_exit("No Scene ID provided")
-            execute_check_mode(sid, token)
+            if not sid: error_exit("No Scene ID provided", req_id)
+            execute_check_mode(sid, token, req_id)
 
     except Exception as e:
-        error_exit(f"Script Crash: {str(e)}")
+        # Try to retrieve req_id from partial data if possible
+        r_id = locals().get('req_id', None)
+        error_exit(f"Script Crash: {str(e)}", r_id)
