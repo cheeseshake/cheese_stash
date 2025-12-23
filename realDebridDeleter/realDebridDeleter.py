@@ -20,22 +20,17 @@ def send_response(payload, req_id):
     """
     LOG SCRAPER ARCHITECTURE: 
     Write JSON to STDERR wrapped in unique tags.
-    The JS will read the Stash logs via GraphQL to find this.
     """
     if not req_id:
         log("CRITICAL: No Request ID provided.")
         sys.exit(1)
 
     json_str = json.dumps(payload)
-    
-    # Create a unique tag based on the request ID
     tag = f"###RD_RES_{req_id}###"
     
-    # Print to stderr so it hits the log file
+    # Print sandwich to logs
     sys.stderr.write(f"{tag}{json_str}{tag}\n")
     sys.stderr.flush()
-    
-    # Exit 0 (Success)
     sys.exit(0)
 
 def error_exit(msg, req_id=None):
@@ -44,7 +39,7 @@ def error_exit(msg, req_id=None):
         send_response({"error": msg}, req_id)
     sys.exit(1)
 
-# --- CONFIG & NETWORK (Unchanged) ---
+# --- CONFIG & NETWORK ---
 def get_api_key_from_config():
     if not os.path.exists(CONFIG_PATH): return None
     try:
@@ -70,7 +65,7 @@ def get_rd_api_key():
         return data.get(PLUGIN_ID, {}).get('rd_api_key')
     except: return None
 
-# --- LOGIC (Unchanged) ---
+# --- LOGIC ---
 def get_scene_details(scene_id):
     query = """query FindScene($id: ID!) { findScene(id: $id) { id title files { path basename } } }"""
     try:
@@ -79,16 +74,36 @@ def get_scene_details(scene_id):
     except: return None
 
 def find_sibling_scenes(folder_path):
-    escaped_path = re.escape(folder_path)
+    """
+    Finds all scenes that exist inside the given folder path.
+    FIX 1: Removed re.escape (broke Stash INCLUDES query).
+    FIX 2: Uses startswith to find nested files (subfolders).
+    """
+    # Ensure no trailing slash for the query, but we use it for matching later
+    clean_search_path = folder_path.rstrip(os.sep)
+    
     query = """query FindScenesByPath($filter: SceneFilterType!) { findScenes(scene_filter: $filter) { scenes { id title files { path } } } }"""
-    variables = {"filter": {"path": {"value": escaped_path, "modifier": "INCLUDES"}}}
+    
+    # Pass raw path. Stash handles the substring match.
+    variables = {"filter": {"path": {"value": clean_search_path, "modifier": "INCLUDES"}}}
+    
     try:
         r = requests.post(STASH_URL, json={'query': query, 'variables': variables}, headers=get_stash_headers())
         scenes = r.json().get('data', {}).get('findScenes', {}).get('scenes', [])
+        
         siblings = []
+        # Prepare a prefix that ensures we only match children, not siblings with similar names
+        # e.g. "/path/pack" matches "/path/pack/file.mp4" but NOT "/path/pack_2/file.mp4"
+        match_prefix = clean_search_path + os.sep
+        
         for s in scenes:
-            if s['files'] and os.path.dirname(s['files'][0]['path']) == folder_path:
-                siblings.append({'id': s['id'], 'title': s['title']})
+            if not s['files']: continue
+            path = s['files'][0]['path']
+            
+            # Check if strict match (file in root of folder) OR child match (file in subfolder)
+            if os.path.dirname(path) == clean_search_path or path.startswith(match_prefix):
+                 siblings.append({'id': s['id'], 'title': s['title']})
+                 
         return siblings
     except: return []
 
@@ -132,6 +147,7 @@ def execute_delete_mode(input_data, token, req_id):
     log("Entering Delete Mode")
     torrent_id = input_data.get('torrent_id')
     scene_ids_raw = input_data.get('scene_ids', '[]')
+    
     try:
         scene_ids = json.loads(scene_ids_raw)
     except:
