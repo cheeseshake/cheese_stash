@@ -1,20 +1,16 @@
 name: RealDebrid Deleter
 version: 1.0
-description: Adds a button to delete scenes from both Stash and RealDebrid simultaneously.
+description: Deletes the underlying torrent from RealDebrid and removes the scene from Stash.
 url: https://github.com/cheeseshake/cheese_stash
-exec:
-  - python3
-  - "{pluginDir}/realDebridDeleter.py"
-interface:
-  scene:
-    - name: "Trash from Cloud"
-      description: "Delete from RealDebrid & Stash"
-      icon: "trash"
-      files: true 
-      action:
-        type: exec
-        args:
-          - "{scene_id}"
+ui:
+  javascript:
+    - realDebridDeleter.js
+tasks:
+  - name: Delete From Cloud
+    description: Deletes the scene from Stash and RealDebrid
+    exec:
+      - python3
+      - "{pluginDir}/realDebridDeleter.py"
 settings:
   rd_api_key:
     displayName: RealDebrid API Key
