@@ -1,13 +1,15 @@
+console.log("RD DELETER: Script file has been loaded by the browser!");
+
 (function () {
     'use strict';
-
+    
     const PLUGIN_ID = "realDebridDeleter";
-    const BUTTON_ID = "rd-delete-btn";
-
-    // Wait for PluginApi to be ready
+    
+    // Retry loop to ensure Stash is ready
     const waitForApi = () => {
         if (!window.PluginApi || !window.PluginApi.React || !window.PluginApi.patcher) {
-            setTimeout(waitForApi, 200);
+            console.log("RD DELETER: Waiting for PluginApi...");
+            setTimeout(waitForApi, 500);
             return;
         }
         init();
@@ -15,67 +17,49 @@
 
     const init = () => {
         const { React, patcher } = window.PluginApi;
-        console.log(`${PLUGIN_ID}: Plugin loaded. Patching interface...`);
+        console.log(`RD DELETER: API Ready. initializing...`);
 
-        // 1. Define the Button
         const DeleteButton = ({ sceneId }) => {
             const handleDelete = async () => {
-                if (!confirm("Are you sure you want to delete this from Stash AND RealDebrid?")) return;
-
-                console.log(`${PLUGIN_ID}: Triggering delete task for Scene ${sceneId}`);
+                if (!confirm("PERMANENTLY DELETE from Stash and RealDebrid?")) return;
                 
                 try {
-                    // Trigger the Python Task defined in YAML
-                    await window.PluginApi.runTask(
-                        PLUGIN_ID, 
-                        "Delete From Cloud", 
-                        { "scene_id": sceneId }
-                    );
-                    alert("Deletion command sent! Check Stash logs/history.");
+                    console.log(`RD DELETER: Sending Delete Task for ${sceneId}`);
+                    await window.PluginApi.runTask(PLUGIN_ID, "Delete From Cloud", { "scene_id": sceneId });
+                    alert("Delete command sent. Check Server Logs for success message.");
                 } catch (err) {
-                    console.error(`${PLUGIN_ID} Error:`, err);
-                    alert("Error starting delete task: " + err);
+                    console.error("RD DELETER Error:", err);
+                    alert("Error: " + err);
                 }
             };
 
             return React.createElement(
                 "button",
                 {
-                    key: BUTTON_ID,
                     className: "btn btn-danger",
                     onClick: handleDelete,
-                    style: { marginLeft: "10px" },
-                    title: "Delete from RealDebrid & Stash"
+                    title: "Delete from Cloud",
+                    style: { marginLeft: "10px" }
                 },
-                React.createElement("span", { className: "fa fa-trash" }),
-                " Cloud Delete"
+                "Cloud Delete"
             );
         };
 
-        // 2. Patch the Toolbar
-        // We try "SceneToolbar" (Standard) and "SceneHeader" (Older/Alternative) just in case.
-        const patchToolbar = (componentName) => {
+        // Patch BOTH common toolbar locations to be safe
+        const patchTargets = ["SceneToolbar", "SceneHeader", "SceneDetailsHeader"];
+        
+        patchTargets.forEach(target => {
             try {
-                patcher.after(componentName, function (components, props) {
+                patcher.after(target, function (components, props) {
                     if (!props.scene || !props.scene.id) return;
-
-                    // Prevent duplicate buttons
-                    if (components.some(c => c && c.key === BUTTON_ID)) return;
-
-                    components.push(
-                        React.createElement(DeleteButton, { sceneId: props.scene.id })
-                    );
+                    components.push(React.createElement(DeleteButton, { sceneId: props.scene.id }));
                 });
-                console.log(`${PLUGIN_ID}: Patched ${componentName} successfully.`);
+                console.log(`RD DELETER: Patched ${target}`);
             } catch (e) {
-                console.error(`${PLUGIN_ID}: Failed to patch ${componentName}`, e);
+                // Ignore errors for targets that don't exist
             }
-        };
-
-        // Try to patch the standard locations
-        patchToolbar("SceneToolbar");
+        });
     };
 
-    // Start waiting
     waitForApi();
 })();
