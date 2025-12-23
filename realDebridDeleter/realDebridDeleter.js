@@ -7,11 +7,14 @@ console.log("RD Plugin: Script Loaded (Error Channel Mode)");
     const TASK_NAME = "Delete From Cloud";
     const BUTTON_ID = "rd-delete-plugin-btn";
 
-    // --- 1. NETWORK HELPER ---
+// --- 1. NETWORK HELPER (Updated to use executePluginTask) ---
     async function runPluginTask(mode, payload) {
+        // We use executePluginTask to get the direct output/error back
         const mutation = `
-            mutation RunTask($plugin_id: ID!, $task_name: String!, $args: [PluginArgInput!]) {
-                runPluginTask(plugin_id: $plugin_id, task_name: $task_name, args: $args)
+            mutation ExecutePluginTask($plugin_id: ID!, $task_name: String!, $args: [PluginArgInput!]) {
+                executePluginTask(plugin_id: $plugin_id, task_name: $task_name, args: $args) {
+                    result
+                }
             }
         `;
 
@@ -24,35 +27,29 @@ console.log("RD Plugin: Script Loaded (Error Channel Mode)");
             })
         ];
 
-        const variables = {
-            plugin_id: PLUGIN_ID,
-            task_name: TASK_NAME,
-            args: args
-        };
-
         try {
-            console.log(`RD Plugin: Sending task '${mode}'...`, variables);
+            console.log(`RD Plugin: Executing task '${mode}'...`);
 
             const response = await fetch('/graphql', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: mutation, variables: variables })
+                body: JSON.stringify({ 
+                    query: mutation, 
+                    variables: { plugin_id: PLUGIN_ID, task_name: TASK_NAME, args: args } 
+                })
             });
 
             const json = await response.json();
-
-            // --- THE FIX: We expect an error now! ---
+            
+            // Stash returns the stderr output inside json.errors if sys.exit(1) was used
             let textToScan = "";
 
-            if (json.errors) {
-                // If the python script exited with 1, the output is hidden inside the error message
+            if (json.errors && json.errors.length > 0) {
                 textToScan = json.errors[0].message;
-            } else if (json.data && json.data.runPluginTask) {
-                // In case it somehow succeeded
-                textToScan = json.data.runPluginTask;
+            } else if (json.data && json.data.executePluginTask) {
+                textToScan = json.data.executePluginTask.result || "";
             }
 
-            // Parse the Sandwich
             const regex = /###JSON_START###([\s\S]*?)###JSON_END###/;
             const match = textToScan.match(regex);
 
@@ -60,7 +57,7 @@ console.log("RD Plugin: Script Loaded (Error Channel Mode)");
                 return JSON.parse(match[1]);
             } else {
                 console.error("RD Plugin: No JSON markers found. Raw Text:", textToScan);
-                return { error: "Failed to read plugin output. Check Stash Logs." };
+                return { error: "Could not parse response. See Stash logs." };
             }
 
         } catch (e) {
