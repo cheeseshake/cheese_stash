@@ -88,17 +88,20 @@ def delete_rd_torrent(filename, token):
         return False
 
 if __name__ == "__main__":
-    # READ INPUT FROM STDIN (Sent by the JS runTask command)
+    # ... inside if __name__ == "__main__": ...
     try:
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError:
-        print("Error: No input data received from Stash.", file=sys.stderr)
+        print("Error: No input data received.", file=sys.stderr)
         sys.exit(1)
 
+    # ROBUST FETCH: Check root, then check 'args' sub-dictionary
     scene_id = input_data.get('scene_id')
-    
     if not scene_id:
-        print("Error: No Scene ID provided.", file=sys.stderr)
+        scene_id = input_data.get('args', {}).get('scene_id')
+
+    if not scene_id:
+        print(f"Error: No Scene ID found in input. Received: {input_data}", file=sys.stderr)
         sys.exit(1)
 
     token = get_rd_api_key()
