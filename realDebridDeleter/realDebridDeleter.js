@@ -1,4 +1,4 @@
-console.log("RD Plugin: Script Loaded");
+console.log("RD Plugin: Script Loaded (Fetch Mode)");
 
 (function () {
     'use strict';
@@ -7,31 +7,48 @@ console.log("RD Plugin: Script Loaded");
     const TASK_NAME = "Delete From Cloud";
     const BUTTON_ID = "rd-delete-plugin-btn";
 
-    // --- 1. NETWORK HELPER (Handles the Sandwich JSON) ---
+    // --- 1. NETWORK HELPER (Fetch Mode) ---
     async function runPluginTask(mode, payload) {
-        if (!window.PluginApi) {
-            console.error("RD Plugin: PluginApi not ready");
-            return { error: "Stash API not ready" };
-        }
-        
-        const { runTask } = window.PluginApi;
+        // We construct the GraphQL query manually, which is guaranteed to work
+        const mutation = `
+            mutation RunTask($plugin_id: ID!, $task_name: String!, $args: [PluginArgInput!]) {
+                runPluginTask(plugin_id: $plugin_id, task_name: $task_name, args: $args)
+            }
+        `;
+
+        // Format arguments for Stash (everything must be a string)
+        const args = [
+            { key: "mode", value: { str: mode } },
+            ...Object.keys(payload).map(key => {
+                const val = payload[key];
+                const valStr = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                return { key: key, value: { str: valStr } };
+            })
+        ];
+
+        const variables = {
+            plugin_id: PLUGIN_ID,
+            task_name: TASK_NAME,
+            args: args
+        };
 
         try {
-            // Prepare arguments
-            const args = {
-                "mode": mode,
-                ...Object.keys(payload).reduce((acc, key) => {
-                    const val = payload[key];
-                    // Python expects strings for all args
-                    acc[key] = typeof val === 'object' ? JSON.stringify(val) : String(val);
-                    return acc;
-                }, {})
-            };
+            console.log(`RD Plugin: Sending task '${mode}'...`, variables);
 
-            console.log(`RD Plugin: Sending task '${mode}'...`, args);
-            
-            // Run the task
-            const resultString = await runTask(PLUGIN_ID, TASK_NAME, args);
+            const response = await fetch('/graphql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: mutation, variables: variables })
+            });
+
+            const json = await response.json();
+
+            if (json.errors) {
+                console.error("RD Plugin GraphQL Error:", json.errors);
+                return { error: json.errors[0].message };
+            }
+
+            const resultString = json.data.runPluginTask;
 
             // Parse the Sandwich: ###JSON_START### ... ###JSON_END###
             const regex = /###JSON_START###([\s\S]*?)###JSON_END###/;
@@ -41,10 +58,12 @@ console.log("RD Plugin: Script Loaded");
                 return JSON.parse(match[1]);
             } else {
                 console.warn("RD Plugin: No JSON markers found in output:", resultString);
+                // Fallback: try parsing raw string in case logging was disabled
+                try { return JSON.parse(resultString); } catch(e) {}
                 return { error: "Invalid output from backend. Check Stash Logs." };
             }
         } catch (e) {
-            console.error("RD Plugin Error:", e);
+            console.error("RD Plugin Network Error:", e);
             return { error: e.message };
         }
     }
@@ -54,7 +73,6 @@ console.log("RD Plugin: Script Loaded");
         const btn = document.getElementById(BUTTON_ID);
         const originalHtml = btn.innerHTML;
         
-        // Helper to reset button state
         const resetBtn = () => {
             btn.style.opacity = "1";
             btn.innerHTML = originalHtml;
@@ -111,39 +129,28 @@ console.log("RD Plugin: Script Loaded");
             btn.innerHTML = '<span class="fa fa-exclamation-triangle"></span> Error';
         } else {
             alert(`🗑️ Success! Deleted ${result.deleted_scenes} scenes.`);
-            btn.remove(); // Remove button to indicate success
+            btn.remove(); 
         }
     }
 
-    // --- 3. INJECTOR (The Reliable Brute Force Method) ---
-    // We check every 500ms if the button is missing and inject it.
+    // --- 3. INJECTOR ---
     setInterval(() => {
-        // A. Check if we are on a scene page
         const path = window.location.pathname;
         const match = path.match(/\/scenes\/(\d+)$/);
         if (!match) return;
         const sceneId = match[1];
 
-        // B. Check if button exists
         const existingBtn = document.getElementById(BUTTON_ID);
         if (existingBtn) {
-            // Ensure it matches current scene (navigation handling)
-            if (existingBtn.dataset.sceneId !== sceneId) {
-                existingBtn.remove();
-            } else {
-                return; // All good, do nothing
-            }
+            if (existingBtn.dataset.sceneId !== sceneId) existingBtn.remove();
+            else return;
         }
 
-        // C. Find a home for the button
-        // We look for standard toolbar classes
         const toolbar = document.querySelector('.scene-toolbar-group') || 
                         document.querySelector('.ml-auto') ||
-                        document.querySelector('.SceneHeader-toolbar'); // Newer stash themes
+                        document.querySelector('.SceneHeader-toolbar');
 
         if (toolbar) {
-            console.log("RD Plugin: Injecting Button for Scene", sceneId);
-            
             const btn = document.createElement('button');
             btn.id = BUTTON_ID;
             btn.dataset.sceneId = sceneId;
@@ -152,8 +159,6 @@ console.log("RD Plugin: Script Loaded");
             btn.style.marginLeft = "10px";
             btn.onclick = () => handleButtonClick(sceneId);
             btn.innerHTML = '<span class="fa fa-trash"></span> Cloud Delete';
-
-            // Insert at the beginning of the toolbar
             toolbar.insertBefore(btn, toolbar.firstChild);
         }
     }, 500);
