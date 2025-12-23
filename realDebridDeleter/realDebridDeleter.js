@@ -1,34 +1,53 @@
-console.log("RD DELETER: Script file has been loaded by the browser!");
+console.log("RD DELETER: Script loaded. Starting initialization check...");
 
 (function () {
     'use strict';
-    
+
     const PLUGIN_ID = "realDebridDeleter";
-    
-    // Retry loop to ensure Stash is ready
+    const BUTTON_ID = "rd-delete-btn";
+    let attempts = 0;
+
     const waitForApi = () => {
-        if (!window.PluginApi || !window.PluginApi.React || !window.PluginApi.patcher) {
-            console.log("RD DELETER: Waiting for PluginApi...");
+        // 1. Check if the main API object exists
+        if (!window.PluginApi) {
+            if (attempts % 10 === 0) console.log(`RD DELETER: window.PluginApi is missing (Attempt ${attempts})`);
+            attempts++;
             setTimeout(waitForApi, 500);
             return;
         }
+
+        // 2. Check if the libraries we need exist inside it
+        const missing = [];
+        if (!window.PluginApi.React) missing.push("React");
+        if (!window.PluginApi.patcher) missing.push("patcher");
+
+        if (missing.length > 0) {
+            if (attempts % 10 === 0) console.log(`RD DELETER: PluginApi found, but missing: ${missing.join(", ")}`);
+            attempts++;
+            setTimeout(waitForApi, 500);
+            return;
+        }
+
+        // 3. Success!
+        console.log(`RD DELETER: API Fully Ready after ${attempts} attempts. Initializing...`);
         init();
     };
 
     const init = () => {
-        const { React, patcher } = window.PluginApi;
-        console.log(`RD DELETER: API Ready. initializing...`);
+        const { React, patcher, runTask } = window.PluginApi;
 
         const DeleteButton = ({ sceneId }) => {
             const handleDelete = async () => {
-                if (!confirm("PERMANENTLY DELETE from Stash and RealDebrid?")) return;
-                
+                if (!confirm("Are you sure? This will delete the files from RealDebrid AND Stash.")) return;
+
+                console.log(`${PLUGIN_ID}: Triggering delete for Scene ${sceneId}`);
                 try {
-                    console.log(`RD DELETER: Sending Delete Task for ${sceneId}`);
-                    await window.PluginApi.runTask(PLUGIN_ID, "Delete From Cloud", { "scene_id": sceneId });
-                    alert("Delete command sent. Check Server Logs for success message.");
+                    // We use 'realDebridDeleter' as the pluginId (must match YAML 'exec' or folder name)
+                    // We use 'Delete From Cloud' as the task name (must match YAML 'tasks' name)
+                    await runTask(PLUGIN_ID, "Delete From Cloud", { "scene_id": sceneId });
+                    alert("Delete command sent. Check server logs.");
                 } catch (err) {
-                    console.error("RD DELETER Error:", err);
+                    console.error(`${PLUGIN_ID} Error:`, err);
                     alert("Error: " + err);
                 }
             };
@@ -36,29 +55,42 @@ console.log("RD DELETER: Script file has been loaded by the browser!");
             return React.createElement(
                 "button",
                 {
+                    key: BUTTON_ID,
                     className: "btn btn-danger",
                     onClick: handleDelete,
-                    title: "Delete from Cloud",
-                    style: { marginLeft: "10px" }
+                    style: { marginLeft: "10px" },
+                    title: "Delete from RealDebrid & Stash"
                 },
                 "Cloud Delete"
             );
         };
 
-        // Patch BOTH common toolbar locations to be safe
-        const patchTargets = ["SceneToolbar", "SceneHeader", "SceneDetailsHeader"];
-        
-        patchTargets.forEach(target => {
+        // Try to patch common header components
+        const targets = ["SceneToolbar", "SceneHeader", "SceneDetailsHeader"];
+        let patched = false;
+
+        targets.forEach(target => {
             try {
                 patcher.after(target, function (components, props) {
                     if (!props.scene || !props.scene.id) return;
+                    
+                    // Avoid duplicates
+                    if (components.some(c => c && c.key === BUTTON_ID)) return;
+
                     components.push(React.createElement(DeleteButton, { sceneId: props.scene.id }));
+                    patched = true;
                 });
-                console.log(`RD DELETER: Patched ${target}`);
             } catch (e) {
-                // Ignore errors for targets that don't exist
+                // Squelch errors for missing components
             }
         });
+
+        if (patched) {
+            console.log(`${PLUGIN_ID}: Successfully patched Scene interface.`);
+        } else {
+            console.warn(`${PLUGIN_ID}: Could not find any valid Toolbar to patch. Button will not appear.`);
+            console.log("Available Components in Patcher:", patcher);
+        }
     };
 
     waitForApi();
