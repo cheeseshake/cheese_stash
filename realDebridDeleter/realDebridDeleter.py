@@ -74,38 +74,51 @@ def get_scene_details(scene_id):
     except: return None
 
 def find_sibling_scenes(folder_path):
-    """
-    Finds all scenes that exist inside the given folder path.
-    FIX 1: Removed re.escape (broke Stash INCLUDES query).
-    FIX 2: Uses startswith to find nested files (subfolders).
-    """
-    # Ensure no trailing slash for the query, but we use it for matching later
+    # Ensure no trailing slash for the query
     clean_search_path = folder_path.rstrip(os.sep)
     
-    query = """query FindScenesByPath($filter: SceneFilterType!) { findScenes(scene_filter: $filter) { scenes { id title files { path } } } }"""
+    log(f"DEBUG: Searching Stash for siblings in: {clean_search_path}")
+
+    query = """query FindScenesByPath($filter: SceneFilterType!) { 
+        findScenes(scene_filter: $filter) { 
+            scenes { id title files { path } } 
+        } 
+    }"""
     
-    # Pass raw path. Stash handles the substring match.
     variables = {"filter": {"path": {"value": clean_search_path, "modifier": "INCLUDES"}}}
     
     try:
         r = requests.post(STASH_URL, json={'query': query, 'variables': variables}, headers=get_stash_headers())
-        scenes = r.json().get('data', {}).get('findScenes', {}).get('scenes', [])
+        data = r.json()
         
+        # Log raw response for debugging
+        # log(f"DEBUG: Stash Raw Response: {json.dumps(data)}") 
+
+        scenes = data.get('data', {}).get('findScenes', {}).get('scenes', [])
+        log(f"DEBUG: Stash Query found {len(scenes)} potential matches.")
+
         siblings = []
-        # Prepare a prefix that ensures we only match children, not siblings with similar names
-        # e.g. "/path/pack" matches "/path/pack/file.mp4" but NOT "/path/pack_2/file.mp4"
         match_prefix = clean_search_path + os.sep
         
         for s in scenes:
             if not s['files']: continue
             path = s['files'][0]['path']
             
-            # Check if strict match (file in root of folder) OR child match (file in subfolder)
+            # Log why we accept/reject each file
+            # is_direct_child = os.path.dirname(path) == clean_search_path
+            # is_nested_child = path.startswith(match_prefix)
+            
             if os.path.dirname(path) == clean_search_path or path.startswith(match_prefix):
                  siblings.append({'id': s['id'], 'title': s['title']})
+            else:
+                 # log(f"DEBUG: Rejecting sibling {s['id']} path mismatch: {path}")
+                 pass
                  
+        log(f"DEBUG: Final sibling count: {len(siblings)}")
         return siblings
-    except: return []
+    except Exception as e:
+        log(f"DEBUG: Error finding siblings: {e}")
+        return []
 
 def get_torrent_info(filename, full_path, token):
     headers = {'Authorization': f'Bearer {token}'}
