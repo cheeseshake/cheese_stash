@@ -4,18 +4,18 @@
     description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
   version: 1.7
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/smartStreamPreviews/smartStreamPreviews.zip
-  sha256: 6d2d4d190405566f9a20b30290f0063a151f07e88f751c17d8e4b0e0f42f4d57
+  sha256: cfe73062fef382366dddc702c42d8dfb2d83a5d6d933be4f9cc90d4ae2dec0fb
 - id: sceneSourceIcons
   name: Scene Source Icons
   metadata:
     description: Adds an icon to Scene Cards (Grid & Wall) to view/copy Source URLs.
   version: 1.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/sceneSourceIcons/sceneSourceIcons.zip
-  sha256: 73ff98941fd6124f945935ae5a97d6a09423aa770fb94e7cb27cb85152c1e3a4
+  sha256: dd2690363828086f936d742e03ca144b444e29502ca7332cd5cb05637778e091
 - id: realDebridDeleter
   name: RealDebrid Deleter
   metadata:
     description: Deletes the underlying torrent from RealDebrid and removes the scene from Stash.
   version: 6.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/realDebridDeleter/realDebridDeleter.zip
-  sha256: ec4557f88aed678c185edde0b819d1ab417ab6e871f451f8d1497eca7e93aa79
+  sha256: 32dc50c8b5a308ec465ab54f930bd57bc94eeb312167ea2f8f6ed5218810b4f8
