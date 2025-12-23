@@ -3,7 +3,7 @@ import sys
 import json
 import requests
 import re
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 
 # CONFIGURATION
 STASH_URL = "http://localhost:9999/graphql"
@@ -70,70 +70,89 @@ def get_scene_details(scene_id):
 def normalize_path(path):
     """
     Standardizes paths to ensure reliable comparison.
-    1. Removes 'file://' prefix (CRITICAL FIX)
+    1. Removes 'file://' prefix
     2. Decodes URL encoding (%20 -> Space)
     3. Lowercases and standardizes separators
     """
     if not path: return ""
-    
-    # Strip file schema if present
     if path.startswith("file://"):
         path = path[7:]
-        
-    # Decode URL characters
     path = unquote(path)
-    
-    # Normalize separators and case
     return path.lower().replace('\\', '/').rstrip('/')
 
-def find_sibling_scenes(folder_path):
-    # Normalize the SEARCH path
-    target_folder_norm = normalize_path(folder_path)
-    clean_search_path = folder_path.rstrip(os.sep) # For Stash query
-    
-    log(f"DEBUG: Target Folder (Norm): {target_folder_norm}")
-
+def run_stash_query(search_path_val):
+    """
+    Helper to run the actual GraphQL query.
+    Increased limit to 100 to avoid pagination issues.
+    """
     query = """query FindScenesByPath($filter: SceneFilterType!) { 
         findScenes(scene_filter: $filter) { 
             scenes { id title files { path } } 
         } 
     }"""
     
-    # We search using the raw path (cleaned) because Stash DB might have mixed formats
-    variables = {"filter": {"path": {"value": clean_search_path, "modifier": "INCLUDES"}}}
+    # We now fetch 100 items to cast a wider net
+    variables = {
+        "filter": {
+            "path": {"value": search_path_val, "modifier": "INCLUDES"},
+            "per_page": 100 
+        }
+    }
     
     try:
         r = requests.post(STASH_URL, json={'query': query, 'variables': variables}, headers=get_stash_headers())
-        scenes = r.json().get('data', {}).get('findScenes', {}).get('scenes', [])
-        
-        log(f"DEBUG: Stash Candidate Count: {len(scenes)}")
+        return r.json().get('data', {}).get('findScenes', {}).get('scenes', [])
+    except: return []
 
-        siblings = []
-        
-        for i, s in enumerate(scenes):
-            if not s['files']: continue
-            
-            # Normalize the CANDIDATE path
-            raw_path = s['files'][0]['path']
-            cand_path_norm = normalize_path(raw_path)
-            
-            # CHECK: Does the file path start with the folder path?
-            # We add a slash to ensure we don't match "folder_name_extra"
-            match_prefix = target_folder_norm + "/"
-            
-            if cand_path_norm.startswith(match_prefix):
-                 siblings.append({'id': s['id'], 'title': s['title']})
-            else:
-                 # Log the first failure to help debug
-                 if i == 0:
-                     log(f"DEBUG: Rejected first match. \n   Target: {match_prefix}\n   Cand:   {cand_path_norm}")
-                 pass
-                 
-        log(f"DEBUG: Final Valid Sibling Count: {len(siblings)}")
+def find_sibling_scenes(folder_path):
+    # Prepare our "Target" (Normalized)
+    clean_folder_path = folder_path.rstrip(os.sep)
+    target_folder_norm = normalize_path(clean_folder_path)
+    log(f"DEBUG: Target Norm: {target_folder_norm}")
+
+    # --- STRATEGY 1: Standard Search ---
+    log(f"DEBUG: Strategy 1 - Searching strict path: {clean_folder_path}")
+    scenes = run_stash_query(clean_folder_path)
+    
+    # Filter Strategy 1
+    siblings = []
+    for s in scenes:
+        if not s['files']: continue
+        cand_norm = normalize_path(s['files'][0]['path'])
+        match_prefix = target_folder_norm + "/"
+        if cand_norm.startswith(match_prefix):
+             siblings.append({'id': s['id'], 'title': s['title']})
+
+    if len(siblings) > 0:
+        log(f"DEBUG: Strategy 1 success. Found {len(siblings)} siblings.")
         return siblings
-    except Exception as e:
-        log(f"DEBUG: Error finding siblings: {e}")
+
+    # --- STRATEGY 2: Encoded Search ---
+    # If standard search failed, Stash DB likely stores paths URL-encoded (e.g. %20 for space)
+    # We rely on 'quote' to mimic this encoding.
+    encoded_search_path = quote(clean_folder_path)
+    
+    # Sometimes 'quote' encodes slashes too (%2F), which Stash might not like.
+    # We usually want to keep slashes but encode spaces/special chars.
+    # A safe bet is to replace %2F back to /
+    encoded_search_path = encoded_search_path.replace('%2F', '/')
+    
+    if encoded_search_path == clean_folder_path:
+        log("DEBUG: Encoded path identical to strict path. Skipping Strategy 2.")
         return []
+
+    log(f"DEBUG: Strategy 2 - Searching encoded path: {encoded_search_path}")
+    scenes = run_stash_query(encoded_search_path)
+    
+    for s in scenes:
+        if not s['files']: continue
+        cand_norm = normalize_path(s['files'][0]['path'])
+        match_prefix = target_folder_norm + "/"
+        if cand_norm.startswith(match_prefix):
+             siblings.append({'id': s['id'], 'title': s['title']})
+
+    log(f"DEBUG: Final Sibling Count: {len(siblings)}")
+    return siblings
 
 def get_torrent_info(filename, full_path, token):
     headers = {'Authorization': f'Bearer {token}'}
