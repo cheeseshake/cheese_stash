@@ -3,41 +3,12 @@ import sys
 import json
 import requests
 import re
-import time
 
 # CONFIGURATION
 STASH_URL = "http://localhost:9999/graphql"
 CONFIG_PATH = "/root/.stash/config.yml" 
 PLUGIN_ID = "realDebridDeleter"
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.wmv', '.mov', '.m4v', '.flv', '.webm', '.ts', '.iso'}
-
-# --- PATH HELPERS ---
-def cleanup_old_responses(directory):
-    """Deletes old response files (older than 5 mins) to prevent clutter."""
-    now = time.time()
-    try:
-        for f in os.listdir(directory):
-            if f.startswith("rd_response_") and f.endswith(".json"):
-                full_path = os.path.join(directory, f)
-                # If file is older than 300 seconds (5 mins), delete it
-                if os.stat(full_path).st_mtime < (now - 300):
-                    os.remove(full_path)
-    except Exception:
-        pass
-
-def get_output_path(req_id):
-    """
-    Determines where to save the JSON response file.
-    We use the script's OWN directory (the plugin folder) because
-    Stash exposes this folder to the web at /plugin/realDebridDeleter/
-    """
-    # Get directory of this script file
-    plugin_dir = os.path.dirname(os.path.realpath(__file__))
-    
-    # Run cleanup of old files while we are here
-    cleanup_old_responses(plugin_dir)
-
-    return os.path.join(plugin_dir, f"rd_response_{req_id}.json")
 
 # --- OUTPUT HELPERS ---
 def log(msg):
@@ -47,24 +18,24 @@ def log(msg):
 
 def send_response(payload, req_id):
     """
-    ARCHITECTURE CHANGE: Write JSON to a static file in the plugin dir.
-    The JS will poll this file via HTTP.
+    LOG SCRAPER ARCHITECTURE: 
+    Write JSON to STDERR wrapped in unique tags.
+    The JS will read the Stash logs via GraphQL to find this.
     """
     if not req_id:
-        log("CRITICAL: No Request ID provided. Cannot write response file.")
+        log("CRITICAL: No Request ID provided.")
         sys.exit(1)
 
-    file_path = get_output_path(req_id)
-    log(f"Writing response to: {file_path}")
+    json_str = json.dumps(payload)
     
-    try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f)
-    except Exception as e:
-        log(f"CRITICAL: Failed to write response file: {e}")
-        sys.exit(1)
-        
-    # We exit 0 to tell Stash the script finished fine.
+    # Create a unique tag based on the request ID
+    tag = f"###RD_RES_{req_id}###"
+    
+    # Print to stderr so it hits the log file
+    sys.stderr.write(f"{tag}{json_str}{tag}\n")
+    sys.stderr.flush()
+    
+    # Exit 0 (Success)
     sys.exit(0)
 
 def error_exit(msg, req_id=None):
@@ -73,15 +44,14 @@ def error_exit(msg, req_id=None):
         send_response({"error": msg}, req_id)
     sys.exit(1)
 
-# --- CONFIG ---
+# --- CONFIG & NETWORK (Unchanged) ---
 def get_api_key_from_config():
     if not os.path.exists(CONFIG_PATH): return None
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             for line in f:
-                clean = line.strip()
-                if clean.startswith('api_key:'):
-                    return clean.split(':', 1)[1].strip().strip('"').strip("'")
+                if line.strip().startswith('api_key:'):
+                    return line.split(':', 1)[1].strip().strip('"').strip("'")
     except: pass
     return None
 
@@ -100,7 +70,7 @@ def get_rd_api_key():
         return data.get(PLUGIN_ID, {}).get('rd_api_key')
     except: return None
 
-# --- LOGIC ---
+# --- LOGIC (Unchanged) ---
 def get_scene_details(scene_id):
     query = """query FindScene($id: ID!) { findScene(id: $id) { id title files { path basename } } }"""
     try:
@@ -162,7 +132,6 @@ def execute_delete_mode(input_data, token, req_id):
     log("Entering Delete Mode")
     torrent_id = input_data.get('torrent_id')
     scene_ids_raw = input_data.get('scene_ids', '[]')
-    
     try:
         scene_ids = json.loads(scene_ids_raw)
     except:
@@ -196,8 +165,6 @@ def execute_check_mode(scene_id, token, req_id):
     full_path = scene['files'][0]['path']
     folder_path = os.path.dirname(full_path)
     
-    log(f"File Path: {full_path}")
-    
     torrent = get_torrent_info(scene['files'][0]['basename'], full_path, token)
     if not torrent:
         error_exit("Torrent not found in RD history (No name match)", req_id)
@@ -228,7 +195,6 @@ if __name__ == "__main__":
         
         mode = args.get('mode', 'check')
         req_id = args.get('req_id')
-        
         token = get_rd_api_key()
         
         if not token: error_exit("RD API Key missing in Plugin Settings", req_id)

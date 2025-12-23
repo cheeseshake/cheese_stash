@@ -1,4 +1,4 @@
-console.log("RD Plugin: Script Loaded (Dead Drop Mode)");
+console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
 
 (function () {
     'use strict';
@@ -9,42 +9,68 @@ console.log("RD Plugin: Script Loaded (Dead Drop Mode)");
 
     // --- 1. NETWORK HELPER ---
     
-    // Generates a simple random ID for the file handoff
     function generateReqId() {
-        return Date.now().toString() + "_" + Math.floor(Math.random() * 10000);
+        // Simple random ID
+        return Math.floor(Math.random() * 100000).toString();
     }
 
-// ... inside realDebridDeleter.js ...
-
-    async function waitForFile(reqId, maxAttempts = 20) {
-        // CRITICAL FIX: Stash serves plugin files at /plugin/<id>/
-        // We also add ?t=timestamp to bypass browser caching.
-        const fileUrl = `/plugin/${PLUGIN_ID}/rd_response_${reqId}.json?t=${Date.now()}`;
-        
-        for (let i = 0; i < maxAttempts; i++) {
-            try {
-                // Try to fetch the file
-                const response = await fetch(fileUrl, { cache: "no-store" });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log("RD Plugin: Response file found!", data);
-                    return data;
-                } else {
-                    console.log(`RD Plugin: Poll ${i+1}/${maxAttempts} - File not ready (404)`);
+    // Fetches the last 50 logs from Stash
+    async function getLatestLogs() {
+        const query = `
+            query {
+                logs {
+                    message
                 }
-            } catch (e) {
-                // Ignore network errors while polling
             }
+        `;
+        try {
+            const response = await fetch('/graphql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: query })
+            });
+            const json = await response.json();
+            return json.data.logs || [];
+        } catch (e) {
+            console.error("RD Plugin: Log Fetch Error", e);
+            return [];
+        }
+    }
+
+    async function waitForLogResponse(reqId, maxAttempts = 30) {
+        // We look for this exact tag in the logs
+        const tag = `###RD_RES_${reqId}###`;
+        
+        console.log(`RD Plugin: Scanning logs for tag: ${tag}`);
+
+        for (let i = 0; i < maxAttempts; i++) {
+            const logs = await getLatestLogs();
             
-            // Wait 1 second before next try
+            // Search all recent logs for our tag
+            for (const logEntry of logs) {
+                const msg = logEntry.message || "";
+                if (msg.includes(tag)) {
+                    // We found it! Extract the JSON between the tags
+                    // Format: ... ###TAG### {json} ###TAG###
+                    const parts = msg.split(tag);
+                    if (parts.length >= 3) {
+                        try {
+                            const jsonData = JSON.parse(parts[1]);
+                            console.log("RD Plugin: Log payload found!", jsonData);
+                            return jsonData;
+                        } catch (e) {
+                            console.error("RD Plugin: Failed to parse JSON from log", e);
+                        }
+                    }
+                }
+            }
+
+            // Wait 1 second before next poll
             await new Promise(r => setTimeout(r, 1000));
         }
         
-        return { error: "Timeout waiting for plugin response file." };
+        return { error: "Timeout: Plugin finished but no result found in logs." };
     }
-
-    // ... rest of the file ...
 
     async function runPluginTask(mode, payload) {
         const reqId = generateReqId();
@@ -57,7 +83,7 @@ console.log("RD Plugin: Script Loaded (Dead Drop Mode)");
 
         const args = [
             { key: "mode", value: { str: mode } },
-            { key: "req_id", value: { str: reqId } }, // Sending the ID to Python
+            { key: "req_id", value: { str: reqId } },
             ...Object.keys(payload).map(key => {
                 const val = payload[key];
                 const valStr = typeof val === 'object' ? JSON.stringify(val) : String(val);
@@ -74,23 +100,15 @@ console.log("RD Plugin: Script Loaded (Dead Drop Mode)");
         try {
             console.log(`RD Plugin: Triggering task '${mode}' with ID ${reqId}...`);
 
-            // Fire and forget (mostly) - we just need to know it started
-            const response = await fetch('/graphql', {
+            // Fire and forget (we rely on logs now, not the response of this call)
+            fetch('/graphql', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: mutation, variables: variables })
-            });
-            
-            const json = await response.json();
-            
-            // If Stash returns an immediate error (like "Plugin not found"), catch it here.
-            if (json.errors) {
-                return { error: json.errors[0].message };
-            }
+            }).catch(e => console.error("RD Plugin Task Trigger Error:", e));
 
-            // Now we poll for the file that Python creates
-            console.log("RD Plugin: Polling for response file...");
-            return await waitForFile(reqId);
+            // Immediately start polling logs
+            return await waitForLogResponse(reqId);
 
         } catch (e) {
             console.error("RD Plugin Network Error:", e);
