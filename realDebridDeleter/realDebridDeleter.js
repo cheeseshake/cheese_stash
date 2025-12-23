@@ -1,4 +1,4 @@
-console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
+console.log("RD Plugin: Script Loaded (Icon UI Mode)");
 
 (function () {
     'use strict';
@@ -7,14 +7,12 @@ console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
     const TASK_NAME = "Delete From Cloud";
     const BUTTON_ID = "rd-delete-plugin-btn";
 
-    // --- 1. NETWORK HELPER ---
+    // --- 1. NETWORK HELPER (Log Scraper) ---
     
     function generateReqId() {
-        // Simple random ID
         return Math.floor(Math.random() * 100000).toString();
     }
 
-    // Fetches the last 50 logs from Stash
     async function getLatestLogs() {
         const query = `
             query {
@@ -38,20 +36,15 @@ console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
     }
 
     async function waitForLogResponse(reqId, maxAttempts = 30) {
-        // We look for this exact tag in the logs
         const tag = `###RD_RES_${reqId}###`;
-        
         console.log(`RD Plugin: Scanning logs for tag: ${tag}`);
 
         for (let i = 0; i < maxAttempts; i++) {
             const logs = await getLatestLogs();
             
-            // Search all recent logs for our tag
             for (const logEntry of logs) {
                 const msg = logEntry.message || "";
                 if (msg.includes(tag)) {
-                    // We found it! Extract the JSON between the tags
-                    // Format: ... ###TAG### {json} ###TAG###
                     const parts = msg.split(tag);
                     if (parts.length >= 3) {
                         try {
@@ -64,11 +57,8 @@ console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
                     }
                 }
             }
-
-            // Wait 1 second before next poll
             await new Promise(r => setTimeout(r, 1000));
         }
-        
         return { error: "Timeout: Plugin finished but no result found in logs." };
     }
 
@@ -99,15 +89,12 @@ console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
 
         try {
             console.log(`RD Plugin: Triggering task '${mode}' with ID ${reqId}...`);
-
-            // Fire and forget (we rely on logs now, not the response of this call)
             fetch('/graphql', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: mutation, variables: variables })
             }).catch(e => console.error("RD Plugin Task Trigger Error:", e));
 
-            // Immediately start polling logs
             return await waitForLogResponse(reqId);
 
         } catch (e) {
@@ -116,18 +103,21 @@ console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
         }
     }
 
-    // --- 2. BUTTON LOGIC (Unchanged) ---
+    // --- 2. BUTTON LOGIC ---
     async function handleButtonClick(sceneId) {
         const btn = document.getElementById(BUTTON_ID);
-        const originalHtml = btn.innerHTML;
+        // Save original icon to restore later
+        const originalContent = '<span class="fa fa-trash"></span>';
         
         const resetBtn = () => {
+            btn.classList.remove('fa-spin'); // stop spinning if valid
+            btn.innerHTML = originalContent;
             btn.style.opacity = "1";
-            btn.innerHTML = originalHtml;
         };
 
+        // Loading State: Replace trash icon with spinner
+        btn.innerHTML = '<span class="fa fa-spinner fa-spin"></span>';
         btn.style.opacity = "0.7";
-        btn.innerHTML = '<span class="fa fa-spinner fa-spin"></span> Checking...';
 
         const report = await runPluginTask("check", { scene_id: sceneId });
 
@@ -160,7 +150,9 @@ console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
             return;
         }
 
-        btn.innerHTML = '<span class="fa fa-spinner fa-spin"></span> Deleting...';
+        // Deleting State
+        btn.innerHTML = '<span class="fa fa-circle-notch fa-spin"></span>';
+        
         const result = await runPluginTask("delete", {
             torrent_id: report.torrent_id,
             scene_ids: scenesToDelete
@@ -168,40 +160,74 @@ console.log("RD Plugin: Script Loaded (Log Scraper Mode)");
 
         if (result.error) {
             alert("Delete Failed: " + result.error);
-            btn.innerHTML = '<span class="fa fa-exclamation-triangle"></span> Error';
+            btn.innerHTML = '<span class="fa fa-exclamation-triangle" style="color:red"></span>';
         } else {
             alert(`🗑️ Success! Deleted ${result.deleted_scenes} scenes.`);
             btn.remove(); 
         }
     }
 
-    // --- 3. INJECTOR (Unchanged) ---
+    // --- 3. INJECTOR (Updated UI) ---
     setInterval(() => {
         const path = window.location.pathname;
         const match = path.match(/\/scenes\/(\d+)$/);
         if (!match) return;
         const sceneId = match[1];
 
+        // Avoid dupes
         const existingBtn = document.getElementById(BUTTON_ID);
         if (existingBtn) {
             if (existingBtn.dataset.sceneId !== sceneId) existingBtn.remove();
             else return;
         }
 
-        const toolbar = document.querySelector('.scene-toolbar-group') || 
-                        document.querySelector('.ml-auto') ||
-                        document.querySelector('.SceneHeader-toolbar');
+        // FIND TARGET: "Play Count" (Eye Icon)
+        // We look for the button with title="Play Count"
+        const playCountBtn = document.querySelector('button[title="Play Count"]');
+        let targetLocation = null;
+        let insertMode = 'append';
 
-        if (toolbar) {
+        if (playCountBtn) {
+            // Found the eye. Its parent is usually a div or span group. 
+            // We want to insert BEFORE that group so we are to the left of the eye.
+            const wrapper = playCountBtn.closest('span'); // The span wrapping the play count group
+            if (wrapper) {
+                targetLocation = wrapper;
+                insertMode = 'before';
+            }
+        }
+
+        // Fallback: If no eye icon found, put it at start of toolbar
+        if (!targetLocation) {
+            const toolbar = document.querySelector('.scene-toolbar-group') || 
+                            document.querySelector('.ml-auto') ||
+                            document.querySelector('.SceneHeader-toolbar');
+            targetLocation = toolbar;
+            insertMode = 'prepend';
+        }
+
+        if (targetLocation) {
             const btn = document.createElement('button');
             btn.id = BUTTON_ID;
             btn.dataset.sceneId = sceneId;
-            btn.className = "btn btn-danger";
+            
+            // STYLE: Native Stash Icon Look
+            btn.className = "minimal btn btn-secondary"; 
             btn.title = "Delete from RealDebrid & Stash";
-            btn.style.marginLeft = "10px";
+            btn.style.marginRight = "4px"; // Tiny gap between trash and eye
+            
             btn.onclick = () => handleButtonClick(sceneId);
-            btn.innerHTML = '<span class="fa fa-trash"></span> Cloud Delete';
-            toolbar.insertBefore(btn, toolbar.firstChild);
+            
+            // ICON ONLY (No Text)
+            btn.innerHTML = '<span class="fa fa-trash"></span>';
+            
+            if (insertMode === 'before') {
+                targetLocation.parentElement.insertBefore(btn, targetLocation);
+            } else if (insertMode === 'prepend') {
+                targetLocation.insertBefore(btn, targetLocation.firstChild);
+            } else {
+                targetLocation.appendChild(btn);
+            }
         }
     }, 500);
 
