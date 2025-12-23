@@ -3,7 +3,6 @@ import sys
 import json
 import requests
 import re
-import io
 
 # CONFIGURATION
 STASH_URL = "http://localhost:9999/graphql"
@@ -11,26 +10,24 @@ CONFIG_PATH = "/root/.stash/config.yml"
 PLUGIN_ID = "realDebridDeleter"
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.wmv', '.mov', '.m4v', '.flv', '.webm', '.ts', '.iso'}
 
-# --- OUTPUT CONTROL ---
-# Redirect stdout to capture noise
-buffer = io.StringIO()
-sys.stdout = buffer
-
-def print_clean_response(data):
-    """Restores stdout and prints JSON wrapped in markers."""
-    sys.stdout = sys.__stdout__ 
-    json_str = json.dumps(data)
-    # Wrap in markers so JS can find it even if logs/PIDs get printed
-    print(f"###JSON_START###{json_str}###JSON_END###")
-    sys.exit(0)
+# --- LOGGING HELPER ---
+def log(msg):
+    """Prints to stderr so it appears in Stash logs but doesn't break the JSON response."""
+    print(f"[RD-Plugin] {msg}", file=sys.stderr)
 
 def error_exit(msg):
-    print_clean_response({"error": msg})
+    """Prints JSON error to stdout and exits."""
+    log(f"ERROR: {msg}")
+    print(json.dumps({"error": msg}))
+    sys.exit(1)
 
 def success_exit(payload):
-    print_clean_response(payload)
+    """Prints final JSON payload to stdout and exits."""
+    log("Job finished successfully. Returning JSON.")
+    print(json.dumps(payload))
+    sys.exit(0)
 
-# --- HELPERS ---
+# --- CONFIG PARSERS ---
 
 def get_api_key_from_config():
     if not os.path.exists(CONFIG_PATH): return None
@@ -57,6 +54,8 @@ def get_rd_api_key():
         data = r.json().get('data', {}).get('configuration', {}).get('plugins', {})
         return data.get(PLUGIN_ID, {}).get('rd_api_key')
     except: return None
+
+# --- LOGIC ---
 
 def get_scene_details(scene_id):
     query = """
@@ -110,8 +109,11 @@ def get_torrent_info(filename, full_path, token):
     file_name = os.path.basename(full_path)
     
     search_term = folder_name
+    # Fallback to filename if folder is generic
     if folder_name.lower() in ['__all__', 'cloud', 'data', 'realdebrid', 'zurg', 'movies', 'shows', 'default']:
         search_term = file_name
+
+    log(f"Searching RD for: {search_term}")
 
     try:
         r = requests.get('https://api.real-debrid.com/rest/1.0/torrents?limit=100', headers=headers)
@@ -131,6 +133,7 @@ def get_torrent_info(filename, full_path, token):
             
     if not target: return None
 
+    # Get Detailed Info (File List)
     try:
         r2 = requests.get(f"https://api.real-debrid.com/rest/1.0/torrents/info/{target['id']}", headers=headers)
         if r2.status_code == 200: return r2.json()
@@ -141,6 +144,7 @@ def get_torrent_info(filename, full_path, token):
 # --- MODES ---
 
 def execute_delete_mode(input_data, token):
+    log("Entering Delete Mode")
     torrent_id = input_data.get('torrent_id')
     scene_ids_raw = input_data.get('scene_ids', '[]')
     
@@ -152,23 +156,27 @@ def execute_delete_mode(input_data, token):
     if not torrent_id or torrent_id == "undefined":
         error_exit("Missing valid torrent_id.")
 
+    # 1. Delete from RD
+    log(f"Deleting Torrent ID: {torrent_id}")
     headers = {'Authorization': f'Bearer {token}'}
     del_r = requests.delete(f"https://api.real-debrid.com/rest/1.0/torrents/delete/{torrent_id}", headers=headers)
     
     if del_r.status_code not in [204, 200]:
-        sys.stderr.write(f"RD Delete Failed: {del_r.status_code}\n")
-        error_exit(f"RD Delete Failed ({del_r.status_code}). Check logs.")
+        error_exit(f"RD Delete Failed ({del_r.status_code})")
 
+    # 2. Delete from Stash
     query = """mutation SceneDestroy($id: ID!) { sceneDestroy(input: {id: $id, delete_file: false, delete_generated: true}) }"""
     
     deleted_count = 0
     for sid in scene_ids:
+        log(f"Deleting Stash Scene: {sid}")
         r = requests.post(STASH_URL, json={'query': query, 'variables': {'id': sid}}, headers=get_stash_headers())
         if r.status_code == 200: deleted_count += 1
 
     success_exit({"status": "success", "deleted_scenes": deleted_count})
 
 def execute_check_mode(scene_id, token):
+    log(f"Entering Check Mode for Scene {scene_id}")
     scene = get_scene_details(scene_id)
     if not scene or not scene['files']:
         error_exit("Scene has no files")
@@ -176,12 +184,16 @@ def execute_check_mode(scene_id, token):
     full_path = scene['files'][0]['path']
     folder_path = os.path.dirname(full_path)
     
+    log(f"File Path: {full_path}")
+    
     torrent = get_torrent_info(scene['files'][0]['basename'], full_path, token)
     if not torrent:
         error_exit("Torrent not found in RD history")
 
     files = torrent.get('files', [])
     video_count = sum(1 for f in files if os.path.splitext(f['path'])[1].lower() in VIDEO_EXTENSIONS)
+    
+    log(f"Found Torrent: {torrent['filename']} (Videos: {video_count})")
     
     siblings = find_sibling_scenes(folder_path)
     related_scenes = [s for s in siblings if str(s['id']) != str(scene_id)]
@@ -199,13 +211,16 @@ def execute_check_mode(scene_id, token):
 # --- MAIN ---
 if __name__ == "__main__":
     try:
+        # Read from stdin
         input_data = json.load(sys.stdin)
+        
+        # Unwrap args if Stash passed them inside a wrapper
         args = input_data.get('args', {}) if 'args' in input_data else input_data
         
         mode = args.get('mode', 'check') 
         token = get_rd_api_key()
         
-        if not token: error_exit("RD API Key missing")
+        if not token: error_exit("RD API Key missing in Plugin Settings")
 
         if mode == 'delete':
             execute_delete_mode(args, token)
@@ -215,5 +230,5 @@ if __name__ == "__main__":
             execute_check_mode(sid, token)
 
     except Exception as e:
-        sys.stderr.write(str(e))
-        error_exit(f"Script Error: {str(e)}")
+        # Catch-all for python crashes
+        error_exit(f"Script Crash: {str(e)}")
