@@ -10,25 +10,26 @@ CONFIG_PATH = "/root/.stash/config.yml"
 PLUGIN_ID = "realDebridDeleter"
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.wmv', '.mov', '.m4v', '.flv', '.webm', '.ts', '.iso'}
 
-# --- LOGGING HELPER ---
+# --- OUTPUT HELPERS ---
 def log(msg):
-    """Prints to stderr so it appears in Stash logs but doesn't break the JSON response."""
-    print(f"[RD-Plugin] {msg}", file=sys.stderr)
+    """Prints to stderr so it appears in Stash logs but keeps stdout clean."""
+    sys.stderr.write(f"[RD-Plugin] {msg}\n")
+    sys.stderr.flush()
 
-def error_exit(msg):
-    """Prints JSON error to stdout and exits."""
-    log(f"ERROR: {msg}")
-    print(json.dumps({"error": msg}))
-    sys.exit(1)
-
-def success_exit(payload):
-    """Prints final JSON payload to stdout and exits."""
-    log("Job finished successfully. Returning JSON.")
-    print(json.dumps(payload))
+def send_response(payload):
+    """Wraps JSON in markers so JS can find it amidst any noise."""
+    log("Sending JSON response...")
+    json_str = json.dumps(payload)
+    # The Sandwich: Only data between these markers counts
+    sys.stdout.write(f"###JSON_START###{json_str}###JSON_END###")
+    sys.stdout.flush()
     sys.exit(0)
 
-# --- CONFIG PARSERS ---
+def error_exit(msg):
+    log(f"ERROR: {msg}")
+    send_response({"error": msg})
 
+# --- CONFIG ---
 def get_api_key_from_config():
     if not os.path.exists(CONFIG_PATH): return None
     try:
@@ -56,20 +57,8 @@ def get_rd_api_key():
     except: return None
 
 # --- LOGIC ---
-
 def get_scene_details(scene_id):
-    query = """
-    query FindScene($id: ID!) {
-      findScene(id: $id) {
-        id
-        title
-        files {
-          path
-          basename
-        }
-      }
-    }
-    """
+    query = """query FindScene($id: ID!) { findScene(id: $id) { id title files { path basename } } }"""
     try:
         r = requests.post(STASH_URL, json={'query': query, 'variables': {'id': scene_id}}, headers=get_stash_headers())
         return r.json().get('data', {}).get('findScene')
@@ -77,19 +66,7 @@ def get_scene_details(scene_id):
 
 def find_sibling_scenes(folder_path):
     escaped_path = re.escape(folder_path)
-    query = """
-    query FindScenesByPath($filter: SceneFilterType!) {
-      findScenes(scene_filter: $filter) {
-        scenes {
-          id
-          title
-          files {
-            path
-          }
-        }
-      }
-    }
-    """
+    query = """query FindScenesByPath($filter: SceneFilterType!) { findScenes(scene_filter: $filter) { scenes { id title files { path } } } }"""
     variables = {"filter": {"path": {"value": escaped_path, "modifier": "INCLUDES"}}}
     try:
         r = requests.post(STASH_URL, json={'query': query, 'variables': variables}, headers=get_stash_headers())
@@ -99,22 +76,18 @@ def find_sibling_scenes(folder_path):
             if s['files'] and os.path.dirname(s['files'][0]['path']) == folder_path:
                 siblings.append({'id': s['id'], 'title': s['title']})
         return siblings
-    except:
-        return []
+    except: return []
 
 def get_torrent_info(filename, full_path, token):
     headers = {'Authorization': f'Bearer {token}'}
-    
     folder_name = os.path.basename(os.path.dirname(full_path))
     file_name = os.path.basename(full_path)
     
     search_term = folder_name
-    # Fallback to filename if folder is generic
     if folder_name.lower() in ['__all__', 'cloud', 'data', 'realdebrid', 'zurg', 'movies', 'shows', 'default']:
         search_term = file_name
 
     log(f"Searching RD for: {search_term}")
-
     try:
         r = requests.get('https://api.real-debrid.com/rest/1.0/torrents?limit=100', headers=headers)
         if r.status_code != 200: return None
@@ -133,7 +106,6 @@ def get_torrent_info(filename, full_path, token):
             
     if not target: return None
 
-    # Get Detailed Info (File List)
     try:
         r2 = requests.get(f"https://api.real-debrid.com/rest/1.0/torrents/info/{target['id']}", headers=headers)
         if r2.status_code == 200: return r2.json()
@@ -142,7 +114,6 @@ def get_torrent_info(filename, full_path, token):
     return target
 
 # --- MODES ---
-
 def execute_delete_mode(input_data, token):
     log("Entering Delete Mode")
     torrent_id = input_data.get('torrent_id')
@@ -156,7 +127,6 @@ def execute_delete_mode(input_data, token):
     if not torrent_id or torrent_id == "undefined":
         error_exit("Missing valid torrent_id.")
 
-    # 1. Delete from RD
     log(f"Deleting Torrent ID: {torrent_id}")
     headers = {'Authorization': f'Bearer {token}'}
     del_r = requests.delete(f"https://api.real-debrid.com/rest/1.0/torrents/delete/{torrent_id}", headers=headers)
@@ -164,16 +134,14 @@ def execute_delete_mode(input_data, token):
     if del_r.status_code not in [204, 200]:
         error_exit(f"RD Delete Failed ({del_r.status_code})")
 
-    # 2. Delete from Stash
     query = """mutation SceneDestroy($id: ID!) { sceneDestroy(input: {id: $id, delete_file: false, delete_generated: true}) }"""
-    
     deleted_count = 0
     for sid in scene_ids:
         log(f"Deleting Stash Scene: {sid}")
         r = requests.post(STASH_URL, json={'query': query, 'variables': {'id': sid}}, headers=get_stash_headers())
         if r.status_code == 200: deleted_count += 1
 
-    success_exit({"status": "success", "deleted_scenes": deleted_count})
+    send_response({"status": "success", "deleted_scenes": deleted_count})
 
 def execute_check_mode(scene_id, token):
     log(f"Entering Check Mode for Scene {scene_id}")
@@ -188,7 +156,7 @@ def execute_check_mode(scene_id, token):
     
     torrent = get_torrent_info(scene['files'][0]['basename'], full_path, token)
     if not torrent:
-        error_exit("Torrent not found in RD history")
+        error_exit("Torrent not found in RD history (No name match)")
 
     files = torrent.get('files', [])
     video_count = sum(1 for f in files if os.path.splitext(f['path'])[1].lower() in VIDEO_EXTENSIONS)
@@ -198,7 +166,7 @@ def execute_check_mode(scene_id, token):
     siblings = find_sibling_scenes(folder_path)
     related_scenes = [s for s in siblings if str(s['id']) != str(scene_id)]
     
-    success_exit({
+    send_response({
         "status": "check_complete",
         "torrent_id": torrent['id'],
         "torrent_name": torrent['filename'],
@@ -211,10 +179,7 @@ def execute_check_mode(scene_id, token):
 # --- MAIN ---
 if __name__ == "__main__":
     try:
-        # Read from stdin
         input_data = json.load(sys.stdin)
-        
-        # Unwrap args if Stash passed them inside a wrapper
         args = input_data.get('args', {}) if 'args' in input_data else input_data
         
         mode = args.get('mode', 'check') 
@@ -230,5 +195,4 @@ if __name__ == "__main__":
             execute_check_mode(sid, token)
 
     except Exception as e:
-        # Catch-all for python crashes
         error_exit(f"Script Crash: {str(e)}")
