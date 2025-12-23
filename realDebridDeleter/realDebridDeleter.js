@@ -14,8 +14,12 @@ console.log("RD Plugin: Script Loaded (Dead Drop Mode)");
         return Date.now().toString() + "_" + Math.floor(Math.random() * 10000);
     }
 
+// ... inside realDebridDeleter.js ...
+
     async function waitForFile(reqId, maxAttempts = 20) {
-        const fileUrl = `/generated/rd_response_${reqId}.json`;
+        // CRITICAL FIX: Stash serves plugin files at /plugin/<id>/
+        // We also add ?t=timestamp to bypass browser caching.
+        const fileUrl = `/plugin/${PLUGIN_ID}/rd_response_${reqId}.json?t=${Date.now()}`;
         
         for (let i = 0; i < maxAttempts; i++) {
             try {
@@ -26,6 +30,8 @@ console.log("RD Plugin: Script Loaded (Dead Drop Mode)");
                     const data = await response.json();
                     console.log("RD Plugin: Response file found!", data);
                     return data;
+                } else {
+                    console.log(`RD Plugin: Poll ${i+1}/${maxAttempts} - File not ready (404)`);
                 }
             } catch (e) {
                 // Ignore network errors while polling
@@ -37,6 +43,8 @@ console.log("RD Plugin: Script Loaded (Dead Drop Mode)");
         
         return { error: "Timeout waiting for plugin response file." };
     }
+
+    // ... rest of the file ...
 
     async function runPluginTask(mode, payload) {
         const reqId = generateReqId();

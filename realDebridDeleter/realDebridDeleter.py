@@ -3,6 +3,7 @@ import sys
 import json
 import requests
 import re
+import time
 
 # CONFIGURATION
 STASH_URL = "http://localhost:9999/graphql"
@@ -11,17 +12,32 @@ PLUGIN_ID = "realDebridDeleter"
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.wmv', '.mov', '.m4v', '.flv', '.webm', '.ts', '.iso'}
 
 # --- PATH HELPERS ---
+def cleanup_old_responses(directory):
+    """Deletes old response files (older than 5 mins) to prevent clutter."""
+    now = time.time()
+    try:
+        for f in os.listdir(directory):
+            if f.startswith("rd_response_") and f.endswith(".json"):
+                full_path = os.path.join(directory, f)
+                # If file is older than 300 seconds (5 mins), delete it
+                if os.stat(full_path).st_mtime < (now - 300):
+                    os.remove(full_path)
+    except Exception:
+        pass
+
 def get_output_path(req_id):
-    """Determines where to save the JSON response file."""
-    # We assume 'generated' is a sibling of config.yml
-    base_dir = os.path.dirname(CONFIG_PATH)
-    generated_dir = os.path.join(base_dir, 'generated')
+    """
+    Determines where to save the JSON response file.
+    We use the script's OWN directory (the plugin folder) because
+    Stash exposes this folder to the web at /plugin/realDebridDeleter/
+    """
+    # Get directory of this script file
+    plugin_dir = os.path.dirname(os.path.realpath(__file__))
     
-    # Ensure directory exists
-    if not os.path.exists(generated_dir):
-        os.makedirs(generated_dir, exist_ok=True)
-        
-    return os.path.join(generated_dir, f"rd_response_{req_id}.json")
+    # Run cleanup of old files while we are here
+    cleanup_old_responses(plugin_dir)
+
+    return os.path.join(plugin_dir, f"rd_response_{req_id}.json")
 
 # --- OUTPUT HELPERS ---
 def log(msg):
@@ -31,7 +47,7 @@ def log(msg):
 
 def send_response(payload, req_id):
     """
-    ARCHITECTURE CHANGE: Write JSON to a static file in 'generated'.
+    ARCHITECTURE CHANGE: Write JSON to a static file in the plugin dir.
     The JS will poll this file via HTTP.
     """
     if not req_id:
@@ -48,7 +64,7 @@ def send_response(payload, req_id):
         log(f"CRITICAL: Failed to write response file: {e}")
         sys.exit(1)
         
-    # We still exit 0 to tell Stash the script finished fine.
+    # We exit 0 to tell Stash the script finished fine.
     sys.exit(0)
 
 def error_exit(msg, req_id=None):
@@ -211,7 +227,7 @@ if __name__ == "__main__":
         args = input_data.get('args', {}) if 'args' in input_data else input_data
         
         mode = args.get('mode', 'check')
-        req_id = args.get('req_id') # Crucial: This links the JS request to the file output
+        req_id = args.get('req_id')
         
         token = get_rd_api_key()
         
@@ -225,6 +241,5 @@ if __name__ == "__main__":
             execute_check_mode(sid, token, req_id)
 
     except Exception as e:
-        # Try to retrieve req_id from partial data if possible
         r_id = locals().get('req_id', None)
         error_exit(f"Script Crash: {str(e)}", r_id)
