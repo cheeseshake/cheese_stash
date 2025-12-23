@@ -18,19 +18,19 @@ def log(msg):
 
 def send_response(payload):
     """
-    CRITICAL CHANGE: We write the JSON to STDERR and exit with 1.
-    This forces Stash to report the output in the error message, 
-    bypassing the 'stdout is empty/PID' bug.
+    Standard Response: Write JSON to STDOUT and exit 0.
+    We keep the sandwich markers to ensure clean parsing in JS
+    in case any other libs print to stdout.
     """
-    log("Sending JSON via Error Channel...")
+    log("Sending JSON via Standard Output...")
     json_str = json.dumps(payload)
     
-    # Write the Sandwich to STDERR
-    sys.stderr.write(f"###JSON_START###{json_str}###JSON_END###\n")
-    sys.stderr.flush()
+    # Write to STDOUT
+    sys.stdout.write(f"###JSON_START###{json_str}###JSON_END###\n")
+    sys.stdout.flush()
     
-    # Exit with 1 to force Stash to bubble this up as an error message
-    sys.exit(1)
+    # Exit with 0 (Success) so Stash returns the data in runPluginTask
+    sys.exit(0)
 
 def error_exit(msg):
     log(f"ERROR: {msg}")
