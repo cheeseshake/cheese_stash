@@ -3,6 +3,7 @@ import sys
 import json
 import requests
 import re
+from urllib.parse import unquote
 
 # CONFIGURATION
 STASH_URL = "http://localhost:9999/graphql"
@@ -12,23 +13,16 @@ VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.wmv', '.mov', '.m4v', '.flv', '.we
 
 # --- OUTPUT HELPERS ---
 def log(msg):
-    """Prints to stderr (Stash Logs)."""
     sys.stderr.write(f"[RD-Plugin] {msg}\n")
     sys.stderr.flush()
 
 def send_response(payload, req_id):
-    """
-    LOG SCRAPER ARCHITECTURE: 
-    Write JSON to STDERR wrapped in unique tags.
-    """
     if not req_id:
         log("CRITICAL: No Request ID provided.")
         sys.exit(1)
 
     json_str = json.dumps(payload)
     tag = f"###RD_RES_{req_id}###"
-    
-    # Print sandwich to logs
     sys.stderr.write(f"{tag}{json_str}{tag}\n")
     sys.stderr.flush()
     sys.exit(0)
@@ -73,12 +67,27 @@ def get_scene_details(scene_id):
         return r.json().get('data', {}).get('findScene')
     except: return None
 
-def find_sibling_scenes(folder_path):
-    # Ensure no trailing slash for the query
-    clean_search_path = folder_path.rstrip(os.sep)
-    
-    log(f"DEBUG: Searching Stash for siblings in: {clean_search_path}")
+def normalize_path(path):
+    """
+    Decodes URL characters (%20 -> Space) and standardizes separators.
+    """
+    if not path: return ""
+    # 1. Decode URL encoding (Fixes the "0 matches" bug)
+    path = unquote(path)
+    # 2. Lowercase and standard slashes (Fixes OS differences)
+    return path.lower().replace('\\', '/').rstrip('/')
 
+def find_sibling_scenes(folder_path):
+    """
+    1. Fetches loose candidates from Stash.
+    2. Strictly filters them by decoding paths and checking parent folder equality.
+    """
+    clean_search_path = folder_path.rstrip(os.sep)
+    target_folder_norm = normalize_path(clean_search_path)
+    
+    log(f"DEBUG: Target Folder (Norm): {target_folder_norm}")
+
+    # 1. Broad Search (Returns 25+ results)
     query = """query FindScenesByPath($filter: SceneFilterType!) { 
         findScenes(scene_filter: $filter) { 
             scenes { id title files { path } } 
@@ -89,32 +98,31 @@ def find_sibling_scenes(folder_path):
     
     try:
         r = requests.post(STASH_URL, json={'query': query, 'variables': variables}, headers=get_stash_headers())
-        data = r.json()
+        scenes = r.json().get('data', {}).get('findScenes', {}).get('scenes', [])
         
-        # Log raw response for debugging
-        # log(f"DEBUG: Stash Raw Response: {json.dumps(data)}") 
-
-        scenes = data.get('data', {}).get('findScenes', {}).get('scenes', [])
-        log(f"DEBUG: Stash Query found {len(scenes)} potential matches.")
+        log(f"DEBUG: Stash Candidate Count: {len(scenes)}")
 
         siblings = []
-        match_prefix = clean_search_path + os.sep
         
         for s in scenes:
             if not s['files']: continue
-            path = s['files'][0]['path']
             
-            # Log why we accept/reject each file
-            # is_direct_child = os.path.dirname(path) == clean_search_path
-            # is_nested_child = path.startswith(match_prefix)
+            raw_path = s['files'][0]['path']
+            # Decode and Normalize the candidate's full path
+            cand_path_norm = normalize_path(raw_path)
             
-            if os.path.dirname(path) == clean_search_path or path.startswith(match_prefix):
+            # Get the directory of the candidate file
+            cand_dir_norm = os.path.dirname(cand_path_norm)
+            
+            # 2. STRICT CHECK (Eliminates the "Vol. 174" false positives)
+            if cand_dir_norm == target_folder_norm:
                  siblings.append({'id': s['id'], 'title': s['title']})
             else:
-                 # log(f"DEBUG: Rejecting sibling {s['id']} path mismatch: {path}")
+                 # Optional: Log rejections to see what we avoided
+                 # log(f"DEBUG: Rejected {s['id']}: '{cand_dir_norm}' != '{target_folder_norm}'")
                  pass
                  
-        log(f"DEBUG: Final sibling count: {len(siblings)}")
+        log(f"DEBUG: Final Valid Sibling Count: {len(siblings)}")
         return siblings
     except Exception as e:
         log(f"DEBUG: Error finding siblings: {e}")
