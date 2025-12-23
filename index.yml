@@ -16,6 +16,6 @@
   name: RealDebrid Deleter
   metadata:
     description: Deletes the underlying torrent from RealDebrid and removes the scene from Stash.
-  version: 5.4
+  version: 6.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/realDebridDeleter/realDebridDeleter.zip
   sha256: ec4557f88aed678c185edde0b819d1ab417ab6e871f451f8d1497eca7e93aa79
