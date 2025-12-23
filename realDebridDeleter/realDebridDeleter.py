@@ -12,22 +12,23 @@ PLUGIN_ID = "realDebridDeleter"
 VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.wmv', '.mov', '.m4v', '.flv', '.webm', '.ts', '.iso'}
 
 # --- OUTPUT CONTROL ---
-# We redirect stdout to a buffer to catch any stray prints from libraries
-# This ensures the final JSON output is clean.
+# Redirect stdout to capture noise
 buffer = io.StringIO()
 sys.stdout = buffer
 
+def print_clean_response(data):
+    """Restores stdout and prints JSON wrapped in markers."""
+    sys.stdout = sys.__stdout__ 
+    json_str = json.dumps(data)
+    # Wrap in markers so JS can find it even if logs/PIDs get printed
+    print(f"###JSON_START###{json_str}###JSON_END###")
+    sys.exit(0)
+
 def error_exit(msg):
-    """Restores stdout and prints a clean JSON error."""
-    sys.stdout = sys.__stdout__ # Restore
-    print(json.dumps({"error": msg}))
-    sys.exit(1)
+    print_clean_response({"error": msg})
 
 def success_exit(payload):
-    """Restores stdout and prints the clean JSON payload."""
-    sys.stdout = sys.__stdout__ # Restore
-    print(json.dumps(payload))
-    sys.exit(0)
+    print_clean_response(payload)
 
 # --- HELPERS ---
 
@@ -130,7 +131,6 @@ def get_torrent_info(filename, full_path, token):
             
     if not target: return None
 
-    # Get Details
     try:
         r2 = requests.get(f"https://api.real-debrid.com/rest/1.0/torrents/info/{target['id']}", headers=headers)
         if r2.status_code == 200: return r2.json()
@@ -152,16 +152,13 @@ def execute_delete_mode(input_data, token):
     if not torrent_id or torrent_id == "undefined":
         error_exit("Missing valid torrent_id.")
 
-    # 1. Delete from RD
     headers = {'Authorization': f'Bearer {token}'}
     del_r = requests.delete(f"https://api.real-debrid.com/rest/1.0/torrents/delete/{torrent_id}", headers=headers)
     
     if del_r.status_code not in [204, 200]:
-        # Log to stderr (captured by stash logs, doesn't break JSON)
         sys.stderr.write(f"RD Delete Failed: {del_r.status_code}\n")
         error_exit(f"RD Delete Failed ({del_r.status_code}). Check logs.")
 
-    # 2. Delete from Stash
     query = """mutation SceneDestroy($id: ID!) { sceneDestroy(input: {id: $id, delete_file: false, delete_generated: true}) }"""
     
     deleted_count = 0
