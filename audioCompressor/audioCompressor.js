@@ -23,7 +23,7 @@ console.log("Audio Compressor: Script Loaded");
     // --- AUDIO ENGINE ---
 
     function initAudioGraph(videoEl) {
-        if (currentVideoEl === videoEl && currentContext) return; // Already hooked
+        if (currentVideoEl === videoEl && currentContext) return; 
 
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -33,18 +33,17 @@ console.log("Audio Compressor: Script Loaded");
             const compressor = ctx.createDynamicsCompressor();
 
             // Config Compressor for "Night Mode" Limiting
-            compressor.threshold.value = -24; // Start compressing early
-            compressor.knee.value = 30;       // Smooth transition
-            compressor.ratio.value = 12;      // Hard limit
-            compressor.attack.value = 0.003;  // Fast reaction to explosions
+            compressor.threshold.value = -24; 
+            compressor.knee.value = 30;       
+            compressor.ratio.value = 12;      
+            compressor.attack.value = 0.003;  
             compressor.release.value = 0.25;  
 
-            // Connect Chain: Source -> Gain -> Compressor -> Speakers
+            // Connect Chain
             source.connect(preGain);
             preGain.connect(compressor);
             compressor.connect(ctx.destination);
 
-            // Store references
             currentContext = ctx;
             currentSource = source;
             currentGainNode = preGain;
@@ -52,8 +51,6 @@ console.log("Audio Compressor: Script Loaded");
             currentVideoEl = videoEl;
 
             console.log("Audio Compressor: Graph Initialized");
-            
-            // Apply saved level immediately
             applyGainLevel(getSavedLevel());
 
         } catch (e) {
@@ -63,17 +60,9 @@ console.log("Audio Compressor: Script Loaded");
 
     function applyGainLevel(dB) {
         if (!currentGainNode || !currentContext) return;
+        if (currentContext.state === 'suspended') currentContext.resume();
 
-        // Resume context if browser paused it (common in Chrome autoplay policy)
-        if (currentContext.state === 'suspended') {
-            currentContext.resume();
-        }
-
-        // Convert dB to linear gain: 10^(dB/20)
-        // 0dB = 1.0, 10dB = 3.16, 20dB = 10.0
         const linearGain = Math.pow(10, dB / 20);
-        
-        // Smooth transition to avoid clicks
         currentGainNode.gain.setTargetAtTime(linearGain, currentContext.currentTime, 0.1);
 
         updateButtonVisuals(dB);
@@ -88,7 +77,7 @@ console.log("Audio Compressor: Script Loaded");
     function setSavedLevel(dB) {
         localStorage.setItem(SETTING_KEY, dB);
         applyGainLevel(dB);
-        toggleMenu(false); // Close menu after selection
+        toggleMenu(false); 
     }
 
     function updateButtonVisuals(dB) {
@@ -121,13 +110,13 @@ console.log("Audio Compressor: Script Loaded");
     function createMenu() {
         const menu = document.createElement('div');
         menu.id = MENU_ID;
-        menu.className = "dropdown-menu show"; // 'show' makes it visible, we toggle display manually
+        menu.className = "dropdown-menu show"; 
         menu.style.display = "none";
         menu.style.position = "absolute";
         menu.style.marginTop = "0.5rem";
-        menu.style.right = "0"; // Align right
+        menu.style.right = "0"; 
         menu.style.minWidth = "120px";
-        menu.style.zIndex = "1000";
+        menu.style.zIndex = "2000"; // Increased Z-Index to prevent overlap issues
 
         const levels = [
             { label: "Off (Original)", val: 0 },
@@ -153,21 +142,15 @@ console.log("Audio Compressor: Script Loaded");
     }
 
     function injectUI(videoEl) {
-        // Find toolbar
-        const toolbar = document.querySelector('.ScenePlayer-toolbar-right') || 
-                        document.querySelector('.scene-toolbar-group') || 
-                        document.querySelector('.ml-auto');
-
-        if (!toolbar) return;
         if (document.getElementById(BUTTON_ID)) return;
 
-        // Create Container for relative positioning of menu
+        // Container
         const container = document.createElement('div');
         container.style.position = "relative";
         container.style.display = "inline-block";
-        container.style.marginLeft = "10px";
+        container.style.marginLeft = "10px"; // Spacing from the stars
 
-        // Create Button
+        // Button
         const btn = document.createElement('button');
         btn.id = BUTTON_ID;
         btn.className = "minimal btn btn-secondary";
@@ -178,43 +161,50 @@ console.log("Audio Compressor: Script Loaded");
             toggleMenu();
         };
 
-        // Create Menu
+        // Menu
         const menu = createMenu();
 
         container.appendChild(btn);
         container.appendChild(menu);
         
-        // Insert at start of toolbar (or wherever preferred)
-        toolbar.insertBefore(container, toolbar.firstChild);
+        // --- PLACEMENT LOGIC ---
+        // Try to find the Stars component
+        const stars = document.querySelector('.rating-stars');
+        
+        if (stars && stars.parentNode) {
+            // Insert AFTER the stars
+            // insertBefore(newNode, referenceNode.nextSibling) acts as insertAfter
+            stars.parentNode.insertBefore(container, stars.nextSibling);
+        } else {
+            // Fallback: End of toolbar
+            const toolbar = document.querySelector('.ScenePlayer-toolbar-right') || 
+                            document.querySelector('.scene-toolbar-group') || 
+                            document.querySelector('.ml-auto');
+            if (toolbar) {
+                toolbar.appendChild(container);
+            }
+        }
 
-        // Click outside to close
+        // Click outside listener
         document.addEventListener('click', (e) => {
             if (!container.contains(e.target)) {
                 toggleMenu(false);
             }
         });
         
-        // Init visual state
         updateButtonVisuals(getSavedLevel());
     }
 
     // --- MAIN LOOP ---
     setInterval(() => {
-        // 1. Look for the Video Player
         const video = document.querySelector('video');
         if (!video) return;
 
-        // 2. Initialize Audio Graph if not done for this video
-        // We use a custom property on the DOM element to track it
         if (!video.dataset.audioCompressorHooked) {
             video.dataset.audioCompressorHooked = "true";
-            // Important: We only init the graph if user interacts or we have a saved setting
-            // but for simplicity, we init immediately to be ready.
-            // Modern browsers might require a user gesture (click) to resume AudioContext.
             initAudioGraph(video);
         }
 
-        // 3. Inject UI if missing
         injectUI(video);
 
     }, 1000);
