@@ -2,36 +2,51 @@ import os
 import sys
 import json
 import requests
-import yaml # Stash uses YAML for config, we need to read it
+# REMOVED: import yaml (Not installed by default in Stash)
 
 # CONFIGURATION
 STASH_URL = "http://localhost:9999/graphql"
-CONFIG_PATH = "/root/.stash/config.yml" # Standard location in Docker
+CONFIG_PATH = "/root/.stash/config.yml" 
 PLUGIN_ID = "realDebridDeleter"
+
+def get_api_key_from_config():
+    """
+    Manually parses the YAML config file to avoid needing external libraries.
+    """
+    if not os.path.exists(CONFIG_PATH):
+        return None
+        
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            for line in f:
+                # Look for a line starting with 'api_key:'
+                clean_line = line.strip()
+                if clean_line.startswith('api_key:'):
+                    # Split by colon and take the second part
+                    parts = clean_line.split(':', 1)
+                    if len(parts) > 1:
+                        # Remove quotes and spaces
+                        return parts[1].strip().strip('"').strip("'")
+    except Exception as e:
+        print(f"Warning: Could not read config file: {e}", file=sys.stderr)
+        
+    return None
 
 def get_stash_headers():
     headers = {
         "Content-Type": "application/json"
     }
     
-    # 1. Try Environment Variable (Fastest)
+    # 1. Try Environment Variable
     api_key = os.environ.get('STASH_API_KEY')
     
-    # 2. If missing, read from config file (Robust)
+    # 2. If missing, read from config file manually
     if not api_key:
-        try:
-            if os.path.exists(CONFIG_PATH):
-                with open(CONFIG_PATH, 'r') as f:
-                    config = yaml.safe_load(f)
-                    api_key = config.get('api_key')
-        except Exception as e:
-            print(f"Warning: Could not read config file: {e}", file=sys.stderr)
+        api_key = get_api_key_from_config()
 
     if api_key:
         headers["ApiKey"] = api_key
     else:
-        # If no API key exists, we might be on a system with no auth, 
-        # or we are about to fail 401.
         print("Warning: No Stash API Key found in Env or Config.", file=sys.stderr)
         
     return headers
@@ -50,7 +65,6 @@ def get_rd_api_key():
         
         if r.status_code == 401:
             print("Error: Stash rejected the connection (401 Unauthorized).", file=sys.stderr)
-            print("ACTION REQUIRED: Go to Stash Settings -> Security -> API Key and ensure one is generated.", file=sys.stderr)
             return None
             
         if r.status_code != 200:
@@ -63,9 +77,6 @@ def get_rd_api_key():
     except Exception as e:
         print(f"Error fetching settings: {e}", file=sys.stderr)
         return None
-
-# ... REST OF THE SCRIPT REMAINS THE SAME ...
-# (Copy the get_scene_filename, delete_stash_scene, delete_rd_torrent, and main block from previous steps)
 
 def get_scene_filename(scene_id):
     query = """
