@@ -69,31 +69,37 @@ def get_scene_details(scene_id):
 
 def normalize_path(path):
     """
-    Decodes URL characters (%20 -> Space) and standardizes separators.
+    Standardizes paths to ensure reliable comparison.
+    1. Removes 'file://' prefix (CRITICAL FIX)
+    2. Decodes URL encoding (%20 -> Space)
+    3. Lowercases and standardizes separators
     """
     if not path: return ""
-    # 1. Decode URL encoding (Fixes the "0 matches" bug)
+    
+    # Strip file schema if present
+    if path.startswith("file://"):
+        path = path[7:]
+        
+    # Decode URL characters
     path = unquote(path)
-    # 2. Lowercase and standard slashes (Fixes OS differences)
+    
+    # Normalize separators and case
     return path.lower().replace('\\', '/').rstrip('/')
 
 def find_sibling_scenes(folder_path):
-    """
-    1. Fetches loose candidates from Stash.
-    2. Strictly filters them by decoding paths and checking parent folder equality.
-    """
-    clean_search_path = folder_path.rstrip(os.sep)
-    target_folder_norm = normalize_path(clean_search_path)
+    # Normalize the SEARCH path
+    target_folder_norm = normalize_path(folder_path)
+    clean_search_path = folder_path.rstrip(os.sep) # For Stash query
     
     log(f"DEBUG: Target Folder (Norm): {target_folder_norm}")
 
-    # 1. Broad Search (Returns 25+ results)
     query = """query FindScenesByPath($filter: SceneFilterType!) { 
         findScenes(scene_filter: $filter) { 
             scenes { id title files { path } } 
         } 
     }"""
     
+    # We search using the raw path (cleaned) because Stash DB might have mixed formats
     variables = {"filter": {"path": {"value": clean_search_path, "modifier": "INCLUDES"}}}
     
     try:
@@ -104,22 +110,23 @@ def find_sibling_scenes(folder_path):
 
         siblings = []
         
-        for s in scenes:
+        for i, s in enumerate(scenes):
             if not s['files']: continue
             
+            # Normalize the CANDIDATE path
             raw_path = s['files'][0]['path']
-            # Decode and Normalize the candidate's full path
             cand_path_norm = normalize_path(raw_path)
             
-            # Get the directory of the candidate file
-            cand_dir_norm = os.path.dirname(cand_path_norm)
+            # CHECK: Does the file path start with the folder path?
+            # We add a slash to ensure we don't match "folder_name_extra"
+            match_prefix = target_folder_norm + "/"
             
-            # 2. STRICT CHECK (Eliminates the "Vol. 174" false positives)
-            if cand_dir_norm == target_folder_norm:
+            if cand_path_norm.startswith(match_prefix):
                  siblings.append({'id': s['id'], 'title': s['title']})
             else:
-                 # Optional: Log rejections to see what we avoided
-                 # log(f"DEBUG: Rejected {s['id']}: '{cand_dir_norm}' != '{target_folder_norm}'")
+                 # Log the first failure to help debug
+                 if i == 0:
+                     log(f"DEBUG: Rejected first match. \n   Target: {match_prefix}\n   Cand:   {cand_path_norm}")
                  pass
                  
         log(f"DEBUG: Final Valid Sibling Count: {len(siblings)}")
