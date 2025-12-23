@@ -12,18 +12,25 @@ VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.wmv', '.mov', '.m4v', '.flv', '.we
 
 # --- OUTPUT HELPERS ---
 def log(msg):
-    """Prints to stderr so it appears in Stash logs but keeps stdout clean."""
+    """Prints to stderr."""
     sys.stderr.write(f"[RD-Plugin] {msg}\n")
     sys.stderr.flush()
 
 def send_response(payload):
-    """Wraps JSON in markers so JS can find it amidst any noise."""
-    log("Sending JSON response...")
+    """
+    CRITICAL CHANGE: We write the JSON to STDERR and exit with 1.
+    This forces Stash to report the output in the error message, 
+    bypassing the 'stdout is empty/PID' bug.
+    """
+    log("Sending JSON via Error Channel...")
     json_str = json.dumps(payload)
-    # The Sandwich: Only data between these markers counts
-    sys.stdout.write(f"###JSON_START###{json_str}###JSON_END###")
-    sys.stdout.flush()
-    sys.exit(0)
+    
+    # Write the Sandwich to STDERR
+    sys.stderr.write(f"###JSON_START###{json_str}###JSON_END###\n")
+    sys.stderr.flush()
+    
+    # Exit with 1 to force Stash to bubble this up as an error message
+    sys.exit(1)
 
 def error_exit(msg):
     log(f"ERROR: {msg}")

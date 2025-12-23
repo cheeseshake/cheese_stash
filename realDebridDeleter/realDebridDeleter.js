@@ -1,4 +1,4 @@
-console.log("RD Plugin: Script Loaded (Fetch Mode)");
+console.log("RD Plugin: Script Loaded (Error Channel Mode)");
 
 (function () {
     'use strict';
@@ -7,16 +7,14 @@ console.log("RD Plugin: Script Loaded (Fetch Mode)");
     const TASK_NAME = "Delete From Cloud";
     const BUTTON_ID = "rd-delete-plugin-btn";
 
-    // --- 1. NETWORK HELPER (Fetch Mode) ---
+    // --- 1. NETWORK HELPER ---
     async function runPluginTask(mode, payload) {
-        // We construct the GraphQL query manually, which is guaranteed to work
         const mutation = `
             mutation RunTask($plugin_id: ID!, $task_name: String!, $args: [PluginArgInput!]) {
                 runPluginTask(plugin_id: $plugin_id, task_name: $task_name, args: $args)
             }
         `;
 
-        // Format arguments for Stash (everything must be a string)
         const args = [
             { key: "mode", value: { str: mode } },
             ...Object.keys(payload).map(key => {
@@ -43,32 +41,35 @@ console.log("RD Plugin: Script Loaded (Fetch Mode)");
 
             const json = await response.json();
 
+            // --- THE FIX: We expect an error now! ---
+            let textToScan = "";
+
             if (json.errors) {
-                console.error("RD Plugin GraphQL Error:", json.errors);
-                return { error: json.errors[0].message };
+                // If the python script exited with 1, the output is hidden inside the error message
+                textToScan = json.errors[0].message;
+            } else if (json.data && json.data.runPluginTask) {
+                // In case it somehow succeeded
+                textToScan = json.data.runPluginTask;
             }
 
-            const resultString = json.data.runPluginTask;
-
-            // Parse the Sandwich: ###JSON_START### ... ###JSON_END###
+            // Parse the Sandwich
             const regex = /###JSON_START###([\s\S]*?)###JSON_END###/;
-            const match = resultString.match(regex);
+            const match = textToScan.match(regex);
 
             if (match && match[1]) {
                 return JSON.parse(match[1]);
             } else {
-                console.warn("RD Plugin: No JSON markers found in output:", resultString);
-                // Fallback: try parsing raw string in case logging was disabled
-                try { return JSON.parse(resultString); } catch(e) {}
-                return { error: "Invalid output from backend. Check Stash Logs." };
+                console.error("RD Plugin: No JSON markers found. Raw Text:", textToScan);
+                return { error: "Failed to read plugin output. Check Stash Logs." };
             }
+
         } catch (e) {
             console.error("RD Plugin Network Error:", e);
             return { error: e.message };
         }
     }
 
-    // --- 2. BUTTON LOGIC ---
+    // --- 2. BUTTON LOGIC (Unchanged) ---
     async function handleButtonClick(sceneId) {
         const btn = document.getElementById(BUTTON_ID);
         const originalHtml = btn.innerHTML;
@@ -81,7 +82,6 @@ console.log("RD Plugin: Script Loaded (Fetch Mode)");
         btn.style.opacity = "0.7";
         btn.innerHTML = '<span class="fa fa-spinner fa-spin"></span> Checking...';
 
-        // STEP 1: CHECK
         const report = await runPluginTask("check", { scene_id: sceneId });
 
         if (report.error || !report.torrent_id) {
@@ -90,16 +90,12 @@ console.log("RD Plugin: Script Loaded (Fetch Mode)");
             return;
         }
 
-        // STEP 2: CONFIRM
         let confirmMsg = "";
         let scenesToDelete = [sceneId];
 
         if (report.is_pack) {
             const others = report.related_scenes;
-            confirmMsg = `⚠️ PACK DETECTED ⚠️\n\n`;
-            confirmMsg += `Torrent: ${report.torrent_name}\n`;
-            confirmMsg += `Contains ${report.video_file_count} video files.\n`;
-
+            confirmMsg = `⚠️ PACK DETECTED ⚠️\n\nTorrent: ${report.torrent_name}\nFiles: ${report.video_file_count}\n`;
             if (others.length > 0) {
                 confirmMsg += `\nAlso deleting ${others.length} other Stash scenes:\n`;
                 others.forEach(s => confirmMsg += `- ${s.title}\n`);
@@ -117,7 +113,6 @@ console.log("RD Plugin: Script Loaded (Fetch Mode)");
             return;
         }
 
-        // STEP 3: EXECUTE
         btn.innerHTML = '<span class="fa fa-spinner fa-spin"></span> Deleting...';
         const result = await runPluginTask("delete", {
             torrent_id: report.torrent_id,
@@ -133,7 +128,7 @@ console.log("RD Plugin: Script Loaded (Fetch Mode)");
         }
     }
 
-    // --- 3. INJECTOR ---
+    // --- 3. INJECTOR (Unchanged) ---
     setInterval(() => {
         const path = window.location.pathname;
         const match = path.match(/\/scenes\/(\d+)$/);
