@@ -12,3 +12,10 @@
   version: 1.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/sceneSourceIcons/sceneSourceIcons.zip
   sha256: 94354c9b37ed2da400fedee0519c4aa232a7cb9567760977cdc48121d8d07dd9
+- id: realDebridDeleter
+  name: RealDebrid Deleter
+  metadata:
+    description: Deletes the underlying torrent from RealDebrid and removes the scene from Stash.
+  version: 1.0
+  path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/realDebridDeleter/realDebridDeleter.zip
+  sha256: YOUR_SHA256_HERE
