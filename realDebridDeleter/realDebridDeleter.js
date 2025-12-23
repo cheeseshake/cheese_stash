@@ -1,48 +1,81 @@
 (function () {
     'use strict';
 
-    const { React, patcher } = window.PluginApi;
+    const PLUGIN_ID = "realDebridDeleter";
+    const BUTTON_ID = "rd-delete-btn";
 
-    // 1. Define the Button Component
-    const DeleteButton = ({ sceneId }) => {
-        const handleDelete = async () => {
-            if (!confirm("Are you sure you want to delete this from Stash AND RealDebrid?")) return;
+    // Wait for PluginApi to be ready
+    const waitForApi = () => {
+        if (!window.PluginApi || !window.PluginApi.React || !window.PluginApi.patcher) {
+            setTimeout(waitForApi, 200);
+            return;
+        }
+        init();
+    };
 
+    const init = () => {
+        const { React, patcher } = window.PluginApi;
+        console.log(`${PLUGIN_ID}: Plugin loaded. Patching interface...`);
+
+        // 1. Define the Button
+        const DeleteButton = ({ sceneId }) => {
+            const handleDelete = async () => {
+                if (!confirm("Are you sure you want to delete this from Stash AND RealDebrid?")) return;
+
+                console.log(`${PLUGIN_ID}: Triggering delete task for Scene ${sceneId}`);
+                
+                try {
+                    // Trigger the Python Task defined in YAML
+                    await window.PluginApi.runTask(
+                        PLUGIN_ID, 
+                        "Delete From Cloud", 
+                        { "scene_id": sceneId }
+                    );
+                    alert("Deletion command sent! Check Stash logs/history.");
+                } catch (err) {
+                    console.error(`${PLUGIN_ID} Error:`, err);
+                    alert("Error starting delete task: " + err);
+                }
+            };
+
+            return React.createElement(
+                "button",
+                {
+                    key: BUTTON_ID,
+                    className: "btn btn-danger",
+                    onClick: handleDelete,
+                    style: { marginLeft: "10px" },
+                    title: "Delete from RealDebrid & Stash"
+                },
+                React.createElement("span", { className: "fa fa-trash" }),
+                " Cloud Delete"
+            );
+        };
+
+        // 2. Patch the Toolbar
+        // We try "SceneToolbar" (Standard) and "SceneHeader" (Older/Alternative) just in case.
+        const patchToolbar = (componentName) => {
             try {
-                // Trigger the Python Task defined in YAML
-                await window.PluginApi.runTask(
-                    "realDebridDeleter", 
-                    "Delete From Cloud", 
-                    { "scene_id": sceneId } // Pass scene_id as input to Python
-                );
-                alert("Deletion started. Check logs for details.");
-            } catch (err) {
-                console.error(err);
-                alert("Error starting delete task: " + err);
+                patcher.after(componentName, function (components, props) {
+                    if (!props.scene || !props.scene.id) return;
+
+                    // Prevent duplicate buttons
+                    if (components.some(c => c && c.key === BUTTON_ID)) return;
+
+                    components.push(
+                        React.createElement(DeleteButton, { sceneId: props.scene.id })
+                    );
+                });
+                console.log(`${PLUGIN_ID}: Patched ${componentName} successfully.`);
+            } catch (e) {
+                console.error(`${PLUGIN_ID}: Failed to patch ${componentName}`, e);
             }
         };
 
-        return React.createElement(
-            "button",
-            {
-                className: "btn btn-danger",
-                onClick: handleDelete,
-                style: { marginLeft: "10px" },
-                title: "Delete from RealDebrid & Stash"
-            },
-            React.createElement("span", { className: "fa fa-trash" }),
-            " Cloud Delete"
-        );
+        // Try to patch the standard locations
+        patchToolbar("SceneToolbar");
     };
 
-    // 2. Hook into the Scene Page Toolbar to inject our button
-    patcher.after("SceneToolbar", function (components, props) {
-        if (!props.scene || !props.scene.id) return;
-        
-        // Add our button to the toolbar list
-        components.push(
-            React.createElement(DeleteButton, { sceneId: props.scene.id })
-        );
-    });
-
+    // Start waiting
+    waitForApi();
 })();
