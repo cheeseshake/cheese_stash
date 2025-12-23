@@ -2,15 +2,17 @@ name: RealDebrid Deleter
 version: 1.0
 description: Deletes the underlying torrent from RealDebrid and removes the scene from Stash.
 url: https://github.com/cheeseshake/cheese_stash
+# EXEC MOVED TO ROOT: This defines the main script for the whole plugin
+exec:
+  - python3
+  - "{pluginDir}/realDebridDeleter.py"
 ui:
   javascript:
     - realDebridDeleter.js
 tasks:
   - name: Delete From Cloud
     description: Deletes the scene from Stash and RealDebrid
-    exec:
-      - python3
-      - "{pluginDir}/realDebridDeleter.py"
+    # No 'exec' here. Stash runs the root 'exec' automatically when this task is called.
 settings:
   rd_api_key:
     displayName: RealDebrid API Key
