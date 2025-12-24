@@ -1,0 +1,34 @@
+name: Bunkr Direct
+version: 1.0
+description: Embeds a direct HTML5 video player for scenes with Bunkr URLs but no local files.
+url: https://github.com/cheeseshake/cheese_stash/tree/main/bunkrDirect
+ui:
+  javascript:
+    - bunkrDirect.js
+  # Critical: Whitelist Bunkr domains so the video player can load streams
+  csp:
+    media-src:
+      - https://*.bunkr.cr
+      - https://*.bunkr.ru
+      - https://*.bunkr.is
+      - https://*.bunkr.site
+      - https://*.bunkr.sk
+      - https://*.bunkr.se
+      - https://*.bunkr.si
+      - https://*.b-cdn.net
+      - blob:
+    connect-src:
+      - https://*.bunkr.cr
+      - https://*.bunkr.ru
+      - https://*.bunkr.is
+
+exec:
+  - ["python3", "bunkr_scraper.py"]
+
+interface: hidden
+
+tasks:
+  - name: ScrapeBunkr
+    description: Extracts the direct MP4 link from a Bunkr page
+    defaultArgs:
+      url: ""
