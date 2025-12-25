@@ -26,10 +26,3 @@
   version: 1.2
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/audioCompressor/audioCompressor.zip
   sha256: 339e9d4cc4c02a9de6dfc7822ea43dcc3c7e6b2721634fe75bf1885924e59145
-- id: bunkrDirect
-  name: Bunkr Direct
-  metadata:
-    description: Embeds a direct HTML5 video player for scenes with Bunkr URLs but no local files. Uses a Python scraper to bypass CSP/CORS.
-  version: 1.0
-  path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/bunkrDirect/bunkrDirect.zip
-  sha256: 1d50e8f06545479f583e0e1eda80ca758462cd50782beb010921fee76135c502
