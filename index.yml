@@ -4,25 +4,25 @@
     description: Falls back to full stream if preview is missing, adds hover delay, and plays segmented loops.
   version: 1.7
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/smartStreamPreviews/smartStreamPreviews.zip
-  sha256: 9038509ebf7ac208395868d8659d4a71e80c45b61ae92e417b151f10611eb1d7
+  sha256: 7f66a0c0b9a074e2f9039c9a976c9f6a4412138e28153e6be3a09bf7c960fd42
 - id: sceneSourceIcons
   name: Scene Source Icons
   metadata:
     description: Adds an icon to Scene Cards (Grid & Wall) to view/copy Source URLs.
   version: 1.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/sceneSourceIcons/sceneSourceIcons.zip
-  sha256: ada0350c125ece92f4c890247327c33f94527f855a847988a17e77eadae21cfd
+  sha256: 154a209955b41b9ffdae350826039a9aebcccf3309cfde337ad9429821f4e7f0
 - id: realDebridDeleter
   name: RealDebrid Deleter
   metadata:
     description: Deletes the underlying torrent from RealDebrid and removes the scene from Stash.
   version: 7.0
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/realDebridDeleter/realDebridDeleter.zip
-  sha256: f5e7ebfe92d145f160fae302e3a65093c6b5e9939a5fe24b778ee2a94a2160e5
+  sha256: 0beff5f502a3c99bf514835fbe66132674e8a76f5a270899ce1f41612fefa359
 - id: audioCompressor
   name: Audio Compressor
   metadata:
     description: Adds a dynamic range compressor (Night Mode) to the video player to normalize volume.
   version: 1.2
   path: https://raw.githubusercontent.com/cheeseshake/cheese_stash/main/audioCompressor/audioCompressor.zip
-  sha256: 339e9d4cc4c02a9de6dfc7822ea43dcc3c7e6b2721634fe75bf1885924e59145
+  sha256: b28ca5cc6ea09dfd09348a86d81253e952262b649a69688b0c3defdfa912a2c7
